@@ -14,6 +14,7 @@ class Match:
 
     home_team: str = ""
     away_team: str = ""
+    match_time: str = ""
     home_score: str = ""
     away_score: str = ""
 
@@ -48,6 +49,7 @@ class Match:
             league=str(data.get("league", "")),
             home_team=str(data.get("home_team", "")),
             away_team=str(data.get("away_team", "")),
+            match_time=str(data.get("match_time", "")),
             home_score=str(data.get("home_score", "")),
             away_score=str(data.get("away_score", "")),
             over_odd=str(data.get("over_odd", "")),
