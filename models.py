@@ -3,10 +3,8 @@ from dataclasses import dataclass, asdict
 
 @dataclass(slots=True)
 class Match:
-    """Контракт данных матча, который передаётся между scraper, tracker и анализатором.
-
-    Поля хранятся явно, чтобы не гонять словари между модулями.
-    """
+    # Контракт данных матча, который передаётся между scraper и analyzer.
+    # Поля хранятся явно, чтобы не гонять словари между модулями.
 
     match_id: str = ""
     league_id: str = ""
@@ -24,25 +22,25 @@ class Match:
 
     @property
     def teams(self) -> str:
-        """Возвращает строку вида 'Home - Away'."""
+        # Возвращает строку вида 'Home - Away'.
         if self.home_team and self.away_team:
             return f"{self.home_team} - {self.away_team}"
         return ""
 
     @property
     def score(self) -> str:
-        """Возвращает строку вида '1 - 0'."""
+        # Возвращает строку вида '1 - 0'.
         if self.home_score and self.away_score:
             return f"{self.home_score} - {self.away_score}"
         return ""
 
     def to_dict(self) -> dict:
-        """Преобразует объект в словарь для совместимости с логированием или сериализацией."""
+        # Преобразует объект в словарь для совместимости с логированием или сериализацией.
         return asdict(self)
 
     @classmethod
     def from_dict(cls, data: dict) -> "Match":
-        """Создаёт объект из словаря, чтобы постепенно мигрировать с dict на модели."""
+        # Создаёт объект из словаря, чтобы постепенно мигрировать с dict на модели.
         return cls(
             match_id=str(data.get("match_id", "")),
             league_id=str(data.get("league_id", "")),
@@ -60,11 +58,9 @@ class Match:
 
 @dataclass(slots=True)
 class MatchDelta:
-    """Служебный контракт для обновления одного уже известного матча.
-
-    Необязательный класс на будущее: позволяет выражать, что конкретно
-    изменилось на странице и в какой момент это произошло.
-    """
+    # Служебный контракт для обновления одного уже известного матча.
+    # Необязательный класс на будущее: позволяет выражать, что конкретно
+    # изменилось на странице и в какой момент это произошло.
 
     match_id: str
     changed_at: str = ""

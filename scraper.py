@@ -2,22 +2,22 @@ from logger import logger
 from models import Match
 
 
+# Очищаем значение до строки без пробелов по краям.
 def _clean_text(value):
-    """Очищает текст до нормального отображения."""
     if value is None:
         return ""
     return str(value).strip()
 
 
+# Читаем текст первого найденного элемента.
 def _text(locator):
-    """Возвращает очищенный текст первого найденного элемента."""
     if locator.count() == 0:
         return ""
     return _clean_text(locator.nth(0).text_content() or "")
 
 
-def wait_for_match_data(page): # Возможно стоит убрать функцию
-    """Ожидает появления хотя бы одного матча с непустым временем."""
+# Ждём live-матчи с заполненным временем.
+def wait_for_match_data(page):
     try:
         page.wait_for_selector("#gameList .matchDiv", state="visible", timeout=30_000)
         page.wait_for_function(
@@ -36,8 +36,8 @@ def wait_for_match_data(page): # Возможно стоит убрать фун
         raise
 
 
+# Ждём заполненные коэффициенты матчей.
 def wait_for_match_odds(page):
-    """Ожидает появления заполненных коэффициентов."""
     try:
         page.wait_for_function(
             r"""
@@ -57,8 +57,8 @@ def wait_for_match_odds(page):
         raise
 
 
+# Получаем названия лиг по их ID.
 def _league_names(page):
-    """Возвращает отображаемые названия лиг по их идентификаторам."""
     leagues = {}
     headers = page.locator("#gameList .group-title[data-leaid]")
 
@@ -131,8 +131,8 @@ _MATCH_DATA_JS = r"""
 """
 
 
+# Загружаем данные всех подходящих матчей из DOM.
 def _load_all_matches_data(page) -> list[Match]:
-    """Собирает данные всех подходящих матчей одним чтением DOM."""
     try:
         raw_matches = page.evaluate(_MATCH_DATA_JS)
         return [
@@ -156,8 +156,8 @@ def _load_all_matches_data(page) -> list[Match]:
         raise
 
 
+# Собираем текущий snapshot уникальных матчей.
 def _collect_current_matches(page):
-    """Собирает текущий snapshot матчей без ожидания загрузки данных."""
     try:
         league_names = _league_names(page)
         match_data_list = _load_all_matches_data(page)
@@ -173,69 +173,122 @@ def _collect_current_matches(page):
             match_data.league = league_names.get(match_data.league_id, "")
 
             if not match_data.teams:
-                logger.warning("Матч %s не содержит данные о командах, пропускаем.", match_id)
+                logger.warning("Match %s has no team data; skipping.", match_id)
                 continue
 
             matches.append(match_data)
-            logger.info(
-                "Матч: match_id=%s | league=%s | teams=%s | match_time=%s | score=%s | over_odd=%s | under_odd=%s | total=%s",
-                match_data.match_id,
-                match_data.league,
-                match_data.teams,
-                match_data.match_time,
-                match_data.score,
-                match_data.over_odd,
-                match_data.under_odd,
-                match_data.total,
-            )
 
-        logger.info("Собрано матчей: %d.", len(matches))
         return matches
     except Exception:
-        logger.error("Не удалось собрать текущий snapshot матчей.", exc_info=True)
+        logger.error("Failed to collect current match snapshot.", exc_info=True)
         raise
 
 
+    # Ждём и собираем матчи при первоначальном запуске.
 def scrape_matches(page):
-    """Собирает уникальные матчи с заполненным тоталом и выводит их в лог."""
     try:
         wait_for_match_data(page)
         wait_for_match_odds(page)
-        return _collect_current_matches(page)
+        matches = _collect_current_matches(page)
+        match_ids = ", ".join(match.match_id for match in matches)
+        logger.info(
+            "Matches found: %d%s",
+            len(matches),
+            f" ({match_ids})" if match_ids else "",
+        )
+        return matches
     except Exception:
-        logger.error("Не удалось собрать данные матчей.", exc_info=True)
+        logger.error("Failed to scrape match data.", exc_info=True)
         raise
 
 
-class _LiveWatch:
-    """Управляет подпиской на изменения списка live-матчей."""
+    # Логируем количество и ID обновлённых матчей.
+def _log_matches_updated(matches):
+    match_ids = ", ".join(match.match_id for match in matches)
+    logger.info(
+        "Matches updated: %d%s",
+        len(matches),
+        f" ({match_ids})" if match_ids else "",
+    )
 
-    def __init__(self, page, observer_key, on_matches_update):
+
+class _LiveWatch:
+    # Управляет подпиской на изменения списка live-матчей.
+
+    # Инициализируем наблюдатель и сохраняем начальный snapshot.
+    def __init__(self, page, observer_key, on_matches_update, initial_matches):
         self._page = page
         self._observer_key = observer_key
         self._on_matches_update = on_matches_update
+        self._matches_by_id = {match.match_id: match for match in initial_matches}
+        self._snapshot_by_id = dict(self._matches_by_id)
         self._pending_update = False
         self._stopped = False
 
+    # Помечаем наличие изменений DOM для основного цикла.
     def _mark_dom_change(self):
-        """Запоминает изменение DOM для обработки в основном цикле Playwright."""
         self._pending_update = True
 
+    # Собираем snapshot и передаём только изменённые матчи.
     def process_pending(self):
-        """Обрабатывает накопленные изменения DOM текущими данными матчей."""
         try:
             if not self._pending_update:
                 return
 
             self._pending_update = False
-            matches = _collect_current_matches(self._page)
-            self._on_matches_update(matches)
+            logger.info("Live match DOM change detected.")
+            current_matches = _collect_current_matches(self._page)
+            updated_matches = []
+            for match in current_matches:
+                if self._matches_by_id.get(match.match_id) != match:
+                    updated_matches.append(match)
+                    self._matches_by_id[match.match_id] = match
+
+            if updated_matches:
+                self._on_matches_update(updated_matches)
         except Exception:
-            logger.error("Не удалось обработать изменение live-матчей.", exc_info=True)
+            logger.error("Failed to process live match update.", exc_info=True)
             raise
 
+    # Сверяем полный снимок после обновления и забываем исчезнувшие матчи.
+    def reconcile_after_refresh(self, current_matches):
+        try:
+            current_by_id = {match.match_id: match for match in current_matches}
+            added_ids = [
+                match_id
+                for match_id in current_by_id
+                if match_id not in self._snapshot_by_id
+            ]
+            deleted_ids = [
+                match_id
+                for match_id in self._snapshot_by_id
+                if match_id not in current_by_id
+            ]
+            changed_matches = [
+                match
+                for match in current_matches
+                if self._matches_by_id.get(match.match_id) != match
+            ]
+
+            self._matches_by_id = current_by_id
+            self._snapshot_by_id = dict(current_by_id)
+
+            if changed_matches:
+                self._on_matches_update(changed_matches)
+
+            logger.info(
+                "Matches updated: added %d (%s) deleted %d (%s)",
+                len(added_ids),
+                ", ".join(added_ids),
+                len(deleted_ids),
+                ", ".join(deleted_ids),
+            )
+        except Exception:
+            logger.error("Failed to reconcile matches after refresh.", exc_info=True)
+            raise
+
+    # Останавливаем наблюдатель за изменениями DOM.
     def stop(self):
-        """Останавливает наблюдение за изменениями DOM."""
         try:
             if self._stopped:
                 return
@@ -253,25 +306,27 @@ class _LiveWatch:
                 self._observer_key,
             )
             self._stopped = True
-            logger.info("Наблюдение за live-матчами остановлено.")
+            logger.info("Live match monitoring stopped.")
         except Exception:
-            logger.error("Не удалось остановить наблюдение за live-матчами.", exc_info=True)
+            logger.error("Failed to stop live match monitoring.", exc_info=True)
             raise
 
 
-def start_live_watch(page, on_matches_update):
-    """Запускает постоянное наблюдение за изменениями live-матчей."""
+# Запускаем наблюдение за изменениями DOM матчей.
+def start_live_watch(page, on_matches_update, initial_matches=None):
     try:
         if not callable(on_matches_update):
-            raise TypeError("on_matches_update должен быть вызываемым объектом.")
+            raise TypeError("on_matches_update must be a callable object.")
+        if initial_matches is None:
+            initial_matches = _collect_current_matches(page)
 
         callback_name = f"__scraper_dom_changed_{id(page)}"
         observer_key = f"__scraper_live_observer_{id(page)}"
-        live_watch = _LiveWatch(page, observer_key, on_matches_update)
+        live_watch = _LiveWatch(page, observer_key, on_matches_update, initial_matches)
 
+        # Отмечаем изменение DOM для обработки в основном цикле.
         def on_dom_change():
             live_watch._mark_dom_change()
-            logger.info("Изменение DOM live-матчей обнаружено.")
 
         page.expose_function(callback_name, on_dom_change)
         page.evaluate(
@@ -279,13 +334,14 @@ def start_live_watch(page, on_matches_update):
             ([callbackName, observerKey]) => {
                 const gameList = document.querySelector('#gameList');
                 if (!gameList) {
-                    throw new Error('#gameList не найден.');
+                    throw new Error('#gameList not found.');
                 }
+                const observationRoot = gameList.parentElement || gameList;
 
                 const observer = new MutationObserver(() => {
                     window[callbackName]();
                 });
-                observer.observe(gameList, {
+                observer.observe(observationRoot, {
                     childList: true,
                     subtree: true,
                     characterData: true,
@@ -296,8 +352,8 @@ def start_live_watch(page, on_matches_update):
             [callback_name, observer_key],
         )
 
-        logger.info("Наблюдение за live-матчами запущено.")
+        logger.info("Live match monitoring started.")
         return live_watch
     except Exception:
-        logger.error("Не удалось запустить наблюдение за live-матчами.", exc_info=True)
+        logger.error("Failed to start live match monitoring.", exc_info=True)
         raise

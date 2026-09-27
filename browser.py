@@ -3,7 +3,7 @@ from logger import logger
 
 
 def launch_browser(p):
-    """Запускает Chromium с настройками проекта."""
+    # Запускает Chromium с настройками проекта.
 
     try:
         browser = p.chromium.launch(
@@ -33,7 +33,7 @@ def launch_browser(p):
 
 
 def create_page(browser):
-    """Создаёт контекст браузера и страницу с таймаутами проекта."""
+    # Создаёт контекст браузера и страницу с таймаутами проекта.
     try:
         context = browser.new_context()
         context.add_cookies(config.SITE_COOKIES)
@@ -49,7 +49,7 @@ def create_page(browser):
 
 
 def open_site(page):
-    """Открывает сайт."""
+    # Открывает сайт.
     try:
         logger.info("Loading site...")
         page.goto(config.SITE_URL, wait_until="domcontentloaded")
@@ -60,7 +60,7 @@ def open_site(page):
 
 
 def select_live_tab(page):
-    """Выбирает вкладку Live."""
+    # Выбирает вкладку Live.
     try:
         live_tab = page.locator("#tabLive")
         live_tab.wait_for(state="visible")
@@ -72,8 +72,21 @@ def select_live_tab(page):
         raise
 
 
+def refresh_live_table(page):
+    # Обновляет таблицу матчей нажатием на вкладку Live без перезагрузки страницы.
+    try:
+        live_tab = page.locator("#tabLive")
+        live_tab.wait_for(state="visible")
+        live_tab.click()
+        page.wait_for_timeout(2000)
+        logger.info("Live table refreshed successfully.")
+    except Exception:
+        logger.error("Failed to refresh Live table.", exc_info=True)
+        raise
+
+
 def start_browser():
-    """Запускает Playwright и возвращает подготовленные ресурсы браузера."""
+    # Запускает Playwright и возвращает подготовленные ресурсы браузера.
     from playwright.sync_api import sync_playwright
 
     playwright = sync_playwright().start()

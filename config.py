@@ -1,5 +1,6 @@
 SITE_URL = "https://live10.nowgoal828.com/"
 HEADLESS = False
+LIVE_REFRESH_INTERVAL_SECONDS = (20, 30)
 
 SITE_COOKIES = [
 	{"name": "isRedSound", "value": "0", "domain": "live10.nowgoal828.com", "path": "/", "expires": 1820781809},
