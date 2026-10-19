@@ -14,7 +14,7 @@ def wait_for_match_data(page):
         raise
 
 
-# Ждём появления хотя бы одного коэффициента.
+# Ждём появления коэффициентов обоих рынков.
 def wait_for_match_odds(page):
     try:
         page.wait_for_function(
@@ -26,11 +26,18 @@ def wait_for_match_odds(page):
                 }
 
                 return match.querySelector('td.oddstd p.odds3') !== null;
+            }) && Array.from(document.querySelectorAll('#table_live tr.tds')).some((match) => {
+                const style = window.getComputedStyle(match);
+                if (!match.getClientRects().length || style.display === 'none' || style.visibility === 'hidden') {
+                    return false;
+                }
+
+                return match.querySelector('td.oddstd p.odds1') !== null;
             })
             """,
             timeout=30_000,
         )
-        logger.info("Odds found.")
+        logger.info("Over and AH odds found.")
     except Exception:
         logger.error("Odds not found or failed to load.", exc_info=True)
         raise
@@ -86,7 +93,10 @@ _MATCH_DATA_JS = r"""
             const overOdd = cleanText(oddsCells[0]?.querySelector('p.odds3')?.textContent);
             const total = cleanText(oddsCells[1]?.querySelector('p.odds3')?.textContent);
             const underOdd = cleanText(oddsCells[2]?.querySelector('p.odds3')?.textContent);
-            if (!match.querySelector('td.oddstd p.odds3')) {
+            const ahHomeOdd = cleanText(oddsCells[0]?.querySelector('p.odds1')?.textContent);
+            const ahHandicap = cleanText(oddsCells[1]?.querySelector('p.odds1')?.textContent);
+            const ahAwayOdd = cleanText(oddsCells[2]?.querySelector('p.odds1')?.textContent);
+            if (!match.querySelector('td.oddstd p.odds3, td.oddstd p.odds1')) {
                 return null;
             }
 
@@ -102,6 +112,9 @@ _MATCH_DATA_JS = r"""
                 over_odd: overOdd,
                 total: total,
                 under_odd: underOdd,
+                ah_home_odd: ahHomeOdd,
+                ah_away_odd: ahAwayOdd,
+                ah_handicap: ahHandicap,
                 home_team: teamName(homeCell?.querySelector('[id^="team1_"]')),
                 away_team: teamName(awayCell?.querySelector('[id^="team2_"]')),
                 home_score: score ? score[1] : '',
@@ -130,6 +143,9 @@ def _load_all_matches_data(page) -> list[Match]:
                 over_odd=match_data["over_odd"],
                 under_odd=match_data["under_odd"],
                 total=match_data["total"],
+                ah_home_odd=match_data["ah_home_odd"],
+                ah_away_odd=match_data["ah_away_odd"],
+                ah_handicap=match_data["ah_handicap"],
             )
             for match_data in raw_matches
         ]

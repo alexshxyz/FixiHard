@@ -40,14 +40,19 @@ class MatchAnalyzer:
 			return False
 
 		history = self.histories.setdefault(match.match_id, [])
-		match_data = match.to_dict()
-		if history and history[-1]["match"] == match_data:
+		match_data = match.to_match_data_dict()
+		market_data = match.to_market_data_dict()
+		if history and (
+			history[-1]["match_data"] == match_data
+			and history[-1]["market_data"] == market_data
+		):
 			return False
 
 		history.append(
 			{
 				"observed_at": datetime.now(timezone.utc).isoformat(),
-				"match": match_data,
+				"match_data": match_data,
+				"market_data": market_data,
 			}
 		)
 		return True

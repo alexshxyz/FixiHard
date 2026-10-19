@@ -19,6 +19,9 @@ class Match:
     over_odd: str = ""
     under_odd: str = ""
     total: str = ""
+    ah_home_odd: str = ""
+    ah_away_odd: str = ""
+    ah_handicap: str = ""
 
     @property
     def teams(self) -> str:
@@ -38,6 +41,32 @@ class Match:
         # Преобразует объект в словарь для совместимости с логированием или сериализацией.
         return asdict(self)
 
+    def to_match_data_dict(self) -> dict[str, str]:
+        return {
+            "match_id": self.match_id,
+            "league_id": self.league_id,
+            "league": self.league,
+            "home_team": self.home_team,
+            "away_team": self.away_team,
+            "match_time": self.match_time,
+            "home_score": self.home_score,
+            "away_score": self.away_score,
+        }
+
+    def to_market_data_dict(self) -> dict[str, dict[str, str]]:
+        return {
+            "over": {
+                "odd": self.over_odd,
+                "under_odd": self.under_odd,
+                "total": self.total,
+            },
+            "ah": {
+                "home_odd": self.ah_home_odd,
+                "away_odd": self.ah_away_odd,
+                "handicap": self.ah_handicap,
+            },
+        }
+
     @classmethod
     def from_dict(cls, data: dict) -> "Match":
         # Создаёт объект из словаря, чтобы постепенно мигрировать с dict на модели.
@@ -53,6 +82,9 @@ class Match:
             over_odd=str(data.get("over_odd", "")),
             under_odd=str(data.get("under_odd", "")),
             total=str(data.get("total", "")),
+            ah_home_odd=str(data.get("ah_home_odd", "")),
+            ah_away_odd=str(data.get("ah_away_odd", "")),
+            ah_handicap=str(data.get("ah_handicap", "")),
         )
 
 
