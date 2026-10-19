@@ -60,22 +60,23 @@ def open_site(page):
 
 
 def select_live_tab(page):
-    # Выбирает вкладку Live.
+    # Выбирает Live и ждёт загрузки таблицы матчей.
     try:
-        live_tab = page.locator("#tabLive")
+        live_tab = page.locator("#li_FilterLive")
         live_tab.wait_for(state="visible")
         live_tab.click()
-        page.wait_for_timeout(500)
-        logger.info("Live tab selected successfully.")
+        page.wait_for_selector("#table_live tr.tds", state="attached", timeout=30_000)
+        page.wait_for_timeout(1_000)
+        logger.info("Live table loaded.")
     except Exception:
-        logger.error("Failed to select Live tab.", exc_info=True)
+        logger.error("Failed to select Live tab or load its table.", exc_info=True)
         raise
 
 
 def refresh_live_table(page):
     # Обновляет таблицу матчей нажатием на вкладку Live без перезагрузки страницы.
     try:
-        live_tab = page.locator("#tabLive")
+        live_tab = page.locator("#li_FilterLive")
         live_tab.wait_for(state="visible")
         live_tab.click()
         page.wait_for_timeout(2000)

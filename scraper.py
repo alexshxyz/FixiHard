@@ -1,52 +1,31 @@
+import json
+from pathlib import Path
+
 from logger import logger
 from models import Match
 
 
-# Очищаем значение до строки без пробелов по краям.
-def _clean_text(value):
-    if value is None:
-        return ""
-    return str(value).strip()
-
-
-# Читаем текст первого найденного элемента.
-def _text(locator):
-    if locator.count() == 0:
-        return ""
-    return _clean_text(locator.nth(0).text_content() or "")
-
-
-# Ждём live-матчи с заполненным временем.
+# Ждём появления строк матчей.
 def wait_for_match_data(page):
     try:
-        page.wait_for_selector("#gameList .matchDiv", state="visible", timeout=30_000)
-        page.wait_for_function(
-            r"""
-            () => Array.from(document.querySelectorAll('#gameList .matchDiv')).some((match) => {
-                const state = match.querySelector('text[id^="state_"]');
-                if (!state) return false;
-                const text = (state.textContent || '').replace(/\s+/g, '').trim();
-                return text !== '' && text !== '-' && text !== '0';
-            })
-            """,
-            timeout=30_000,
-        )
+        page.wait_for_selector("#table_live tr.tds", state="attached", timeout=30_000)
     except Exception:
         logger.error("Live matches not found or failed to load.", exc_info=True)
         raise
 
 
-# Ждём заполненные коэффициенты матчей.
+# Ждём появления хотя бы одного коэффициента.
 def wait_for_match_odds(page):
     try:
         page.wait_for_function(
             r"""
-            () => Array.from(document.querySelectorAll('#gameList .matchDiv')).some((match) => {
-                const odds = ['o4_', 'o5_', 'o6_'].map((prefix) => match.querySelector(`span[id^="${prefix}"]`));
-                if (odds.some((node) => !node)) return false;
+            () => Array.from(document.querySelectorAll('#table_live tr.tds')).some((match) => {
+                const style = window.getComputedStyle(match);
+                if (!match.getClientRects().length || style.display === 'none' || style.visibility === 'hidden') {
+                    return false;
+                }
 
-                const oddsText = odds.map((node) => (node.textContent || '').replace(/\s+/g, '').trim());
-                return oddsText.every((text) => text !== '' && text !== '-');
+                return match.querySelector('td.oddstd p.odds3') !== null;
             })
             """,
             timeout=30_000,
@@ -59,59 +38,62 @@ def wait_for_match_odds(page):
 
 # Получаем названия лиг по их ID.
 def _league_names(page):
-    leagues = {}
-    headers = page.locator("#gameList .group-title[data-leaid]")
-
-    for index in range(headers.count()):
-        header = headers.nth(index)
-        league_id = header.get_attribute("data-leaid")
-        if not league_id:
-            continue
-
-        league_name = _text(header.locator(".leaRow"))
-        if league_name:
-            leagues[league_id] = league_name
-
-    return leagues
+    return page.evaluate(
+        """
+        () => Object.fromEntries(
+            Array.from(document.querySelectorAll('#table_live tr.Leaguestitle[sclassid]'))
+                .map((header) => {
+                    const leagueId = header.getAttribute('sclassid');
+                    const name = header.querySelector('.l1 .LGname, .l1 .fbsclass');
+                    return [leagueId, (name?.textContent || '').trim()];
+                })
+                .filter(([leagueId, name]) => leagueId && name)
+        )
+        """
+    )
 
 
 _MATCH_DATA_JS = r"""
 () => {
-    // Эта логика дублирует прежнюю Python-версию отбора значений; при правках
-    // верстки или условий фильтрации нужно синхронизировать оба места.
-    const cleanText = (value) => (value == null ? '' : String(value).trim());
-
-    const readValue = (match, selectors) => {
-        for (const selector of selectors) {
-            const element = match.querySelector(selector);
-            const value = cleanText(element ? element.textContent : '');
-            if (value && value !== '-') {
-                return value;
-            }
-        }
-        return '';
+    const cleanText = (value) => (value == null ? '' : String(value).replace(/\s+/g, ' ').trim());
+    const readText = (root, selector) => cleanText(root.querySelector(selector)?.textContent);
+    const isVisible = (element) => {
+        if (!element?.getClientRects().length) return false;
+        const style = window.getComputedStyle(element);
+        return style.display !== 'none' && style.visibility !== 'hidden';
+    };
+    const teamName = (node) => {
+        if (!node) return '';
+        const clone = node.cloneNode(true);
+        clone.querySelectorAll('.neutraity').forEach((item) => item.remove());
+        return cleanText(clone.textContent);
     };
 
-    return Array.from(document.querySelectorAll('#gameList .matchDiv'))
+    return Array.from(document.querySelectorAll('#table_live tr.tds'))
         .map((match) => {
-            let matchId = match.getAttribute('data-mid') || '';
-            if (!matchId) {
-                const nestedMatch = match.querySelector('.item[data-mid]');
-                matchId = nestedMatch ? nestedMatch.getAttribute('data-mid') || '' : '';
-            }
+            if (!isVisible(match)) return null;
 
-            const leagueId = match.getAttribute('data-mlid') || '';
-            const matchTime = readValue(match, ['text[id^="state_"]']);
-            if (!matchId || !matchTime) {
+            const favorite = match.querySelector('[id^="favM_"]');
+            const rowMatchId = match.id.match(/^tr1_(\d+)$/)?.[1];
+            const matchId = rowMatchId || match.getAttribute('matchid') || favorite?.getAttribute('mid') || '';
+            const leagueId = match.getAttribute('sclassid') || '';
+            const status = match.querySelector('td.status');
+            const matchTime =
+                readText(match, 'td.status span[id^="got_"]') ||
+                cleanText(status?.getAttribute('title'));
+
+            const oddsCells = Array.from(match.querySelectorAll('td.oddstd'));
+            const overOdd = cleanText(oddsCells[0]?.querySelector('p.odds3')?.textContent);
+            const total = cleanText(oddsCells[1]?.querySelector('p.odds3')?.textContent);
+            const underOdd = cleanText(oddsCells[2]?.querySelector('p.odds3')?.textContent);
+            if (!match.querySelector('td.oddstd p.odds3')) {
                 return null;
             }
 
-            const overOdd = readValue(match, ['span[id^="o4_"]']);
-            const total = readValue(match, ['span[id^="o5_"]']);
-            const underOdd = readValue(match, ['span[id^="o6_"]']);
-            if (!overOdd || !total || !underOdd) {
-                return null;
-            }
+            const homeCell = match.querySelector('td[id^="ht_"]');
+            const awayCell = match.querySelector('td[id^="gt_"]');
+            const scoreText = cleanText(homeCell?.nextElementSibling?.textContent);
+            const score = scoreText.match(/(\d+)\s*[-:]\s*(\d+)/);
 
             return {
                 match_id: matchId,
@@ -120,10 +102,10 @@ _MATCH_DATA_JS = r"""
                 over_odd: overOdd,
                 total: total,
                 under_odd: underOdd,
-                home_team: readValue(match, ['span[id^="ht_"]', '.homeTeam .name']),
-                away_team: readValue(match, ['span[id^="gt_"]', '.guestTeam .name']),
-                home_score: readValue(match, ['span[id^="hsc_"]', '.homeS']),
-                away_score: readValue(match, ['span[id^="gsc_"]', '.guestS']),
+                home_team: teamName(homeCell?.querySelector('[id^="team1_"]')),
+                away_team: teamName(awayCell?.querySelector('[id^="team2_"]')),
+                home_score: score ? score[1] : '',
+                away_score: score ? score[2] : '',
             };
         })
         .filter((match) => match !== null);
@@ -166,10 +148,11 @@ def _collect_current_matches(page):
 
         for match_data in match_data_list:
             match_id = match_data.match_id
-            if not match_id or match_id in seen_match_ids:
+            if match_id and match_id in seen_match_ids:
                 continue
 
-            seen_match_ids.add(match_id)
+            if match_id:
+                seen_match_ids.add(match_id)
             match_data.league = league_names.get(match_data.league_id, "")
 
             if not match_data.teams:
@@ -184,12 +167,27 @@ def _collect_current_matches(page):
         raise
 
 
+# Сохраняем команды из того же списка, который выводится в Matches found.
+def _write_matches_total(matches, output_path: Path | None = None):
+    if output_path is None:
+        output_path = Path(__file__).with_name("matches_total.json")
+    output_path.write_text(
+        json.dumps(
+            [match.to_dict() for match in matches],
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+
     # Ждём и собираем матчи при первоначальном запуске.
 def scrape_matches(page):
     try:
         wait_for_match_data(page)
         wait_for_match_odds(page)
         matches = _collect_current_matches(page)
+        _write_matches_total(matches)
         match_ids = ", ".join(match.match_id for match in matches)
         logger.info(
             "Matches found: %d%s",
@@ -216,10 +214,18 @@ class _LiveWatch:
     # Управляет подпиской на изменения списка live-матчей.
 
     # Инициализируем наблюдатель и сохраняем начальный snapshot.
-    def __init__(self, page, observer_key, on_matches_update, initial_matches):
+    def __init__(
+        self,
+        page,
+        observer_key,
+        on_matches_update,
+        initial_matches,
+        on_matches_deleted=None,
+    ):
         self._page = page
         self._observer_key = observer_key
         self._on_matches_update = on_matches_update
+        self._on_matches_deleted = on_matches_deleted
         self._matches_by_id = {match.match_id: match for match in initial_matches}
         self._snapshot_by_id = dict(self._matches_by_id)
         self._pending_update = False
@@ -236,7 +242,6 @@ class _LiveWatch:
                 return
 
             self._pending_update = False
-            logger.info("Live match DOM change detected.")
             current_matches = _collect_current_matches(self._page)
             updated_matches = []
             for match in current_matches:
@@ -275,6 +280,8 @@ class _LiveWatch:
 
             if changed_matches:
                 self._on_matches_update(changed_matches)
+            if deleted_ids and self._on_matches_deleted is not None:
+                self._on_matches_deleted(deleted_ids)
 
             logger.info(
                 "Matches updated: added %d (%s) deleted %d (%s)",
@@ -313,16 +320,29 @@ class _LiveWatch:
 
 
 # Запускаем наблюдение за изменениями DOM матчей.
-def start_live_watch(page, on_matches_update, initial_matches=None):
+def start_live_watch(
+    page,
+    on_matches_update,
+    initial_matches=None,
+    on_matches_deleted=None,
+):
     try:
         if not callable(on_matches_update):
             raise TypeError("on_matches_update must be a callable object.")
+        if on_matches_deleted is not None and not callable(on_matches_deleted):
+            raise TypeError("on_matches_deleted must be a callable object.")
         if initial_matches is None:
             initial_matches = _collect_current_matches(page)
 
         callback_name = f"__scraper_dom_changed_{id(page)}"
         observer_key = f"__scraper_live_observer_{id(page)}"
-        live_watch = _LiveWatch(page, observer_key, on_matches_update, initial_matches)
+        live_watch = _LiveWatch(
+            page,
+            observer_key,
+            on_matches_update,
+            initial_matches,
+            on_matches_deleted,
+        )
 
         # Отмечаем изменение DOM для обработки в основном цикле.
         def on_dom_change():
@@ -332,11 +352,11 @@ def start_live_watch(page, on_matches_update, initial_matches=None):
         page.evaluate(
             """
             ([callbackName, observerKey]) => {
-                const gameList = document.querySelector('#gameList');
-                if (!gameList) {
-                    throw new Error('#gameList not found.');
+                const liveTable = document.querySelector('#table_live');
+                if (!liveTable) {
+                    throw new Error('#table_live not found.');
                 }
-                const observationRoot = gameList.parentElement || gameList;
+                const observationRoot = liveTable.parentElement || liveTable;
 
                 const observer = new MutationObserver(() => {
                     window[callbackName]();

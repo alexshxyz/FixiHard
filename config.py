@@ -1,12 +1,14 @@
-SITE_URL = "https://live10.nowgoal828.com/"
+SITE_URL = "https://www.goaloo.com/"
 HEADLESS = False
-LIVE_REFRESH_INTERVAL_SECONDS = (20, 30)
+LIVE_REFRESH_INTERVAL_SECONDS = (100, 120)
 
 SITE_COOKIES = [
-	{"name": "isRedSound", "value": "0", "domain": "live10.nowgoal828.com", "path": "/", "expires": 1820781809},
-	{"name": "isRedTan", "value": "0", "domain": "live10.nowgoal828.com", "path": "/", "expires": 1820781809},
-	{"name": "isScoreTan", "value": "0", "domain": "live10.nowgoal828.com", "path": "/", "expires": 1820781809},
-	{"name": "notifyBy", "value": "1", "domain": "live10.nowgoal828.com", "path": "/", "expires": 1820781249},
-	{"name": "oddsC", "value": "3", "domain": "live10.nowgoal828.com", "path": "/", "expires": 1820781249},
-	{"name": "orderBy", "value": "0", "domain": "live10.nowgoal828.com", "path": "/", "expires": 1820781809},
+	{"name": "goaloo_SelCompany_V2", "value": "8", "domain": "www.goaloo.com", "path": "/"},
+	{"name": "Default_TimeZone", "value": "3", "domain": "www.goaloo.com", "path": "/"},
+	{"name": "isOddsShow", "value": "1", "domain": "www.goaloo.com", "path": "/"},
+	{"name": "OddsShowType", "value": "9", "domain": "www.goaloo.com", "path": "/"},
+	{"name": "goalWindowCheck", "value": "0", "domain": "www.goaloo.com", "path": "/"},
+	{"name": "redWindowCheck", "value": "0", "domain": "www.goaloo.com", "path": "/"},
+	{"name": "YellowCheck", "value": "0", "domain": "www.goaloo.com", "path": "/"},
+	{"name": "orderby", "value": "time", "domain": "www.goaloo.com", "path": "/"},
 ]

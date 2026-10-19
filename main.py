@@ -1,6 +1,7 @@
 import random
 import time
 
+from analyzer import MatchAnalyzer
 import config
 from browser import refresh_live_table, start_browser
 from logger import logger
@@ -12,10 +13,18 @@ def main():
     live_watch = None
     try:
         initial_matches = scrape_matches(page)
+        analyzer = MatchAnalyzer()
+        analyzer.initialize(initial_matches)
+
+        def on_matches_update(matches):
+            analyzer.record_updates(matches)
+            _log_matches_updated(matches)
+
         live_watch = start_live_watch(
             page,
-            _log_matches_updated,
+            on_matches_update,
             initial_matches,
+            on_matches_deleted=analyzer.remove_matches,
         )
         next_refresh_at = time.monotonic() + random.randint(
             *config.LIVE_REFRESH_INTERVAL_SECONDS
