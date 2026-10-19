@@ -15,7 +15,7 @@ if not logger.handlers:
             console_record = copy.copy(record)
             message = console_record.getMessage()
             message = re.sub(
-                r"\s*\(\s*\d+(?:\s*,\s*\d+)*\s*\)",
+                r"\s*\(\s*(?:\d+(?:\s*,\s*\d+)*\s*)?\)",
                 "",
                 message,
             )

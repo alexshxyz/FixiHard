@@ -34,7 +34,7 @@ def main():
             live_watch.process_pending()
             if time.monotonic() >= next_refresh_at:
                 refresh_live_table(page)
-                refreshed_matches = scrape_matches(page)
+                refreshed_matches = scrape_matches(page, log_odds_found=False)
                 live_watch.reconcile_after_refresh(refreshed_matches)
                 next_refresh_at = time.monotonic() + random.randint(
                     *config.LIVE_REFRESH_INTERVAL_SECONDS

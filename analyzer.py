@@ -11,7 +11,7 @@ class MatchAnalyzer:
 		self.history_path = (
 			Path(history_path)
 			if history_path is not None
-			else Path(__file__).with_name("match_history.json")
+			else Path(__file__).with_name("matches_history.json")
 		)
 
 	def initialize(self, matches: list[Match]) -> None:
