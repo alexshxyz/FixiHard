@@ -18,14 +18,14 @@ class MatchAnalyzer:
 		self.histories.clear()
 		for match in matches:
 			self._append_match(match)
-		self._write_sample_history()
+		self._write_history()
 
 	def record_updates(self, matches: list[Match]) -> None:
 		changed = False
 		for match in matches:
 			changed = self._append_match(match) or changed
 		if changed:
-			self._write_sample_history()
+			self._write_history()
 
 	def remove_matches(self, match_ids: list[str]) -> None:
 		changed = False
@@ -33,7 +33,7 @@ class MatchAnalyzer:
 			if self.histories.pop(match_id, None) is not None:
 				changed = True
 		if changed:
-			self._write_sample_history()
+			self._write_history()
 
 	def _append_match(self, match: Match) -> bool:
 		if not match.match_id:
@@ -57,11 +57,12 @@ class MatchAnalyzer:
 		)
 		return True
 
-	def _write_sample_history(self) -> None:
-		match_id = next(iter(self.histories), None)
+	def _write_history(self) -> None:
 		document = {
-			"match_id": match_id,
-			"history": self.histories.get(match_id, []),
+			"matches": [
+				{"match_id": match_id, "history": history}
+				for match_id, history in self.histories.items()
+			],
 		}
 		self.history_path.write_text(
 			json.dumps(document, ensure_ascii=False, indent=2),

@@ -24,9 +24,9 @@ def launch_browser(p):
                 "--mute-audio",
             ],
         )
-        logger.info("Browser started successfully.")
+        logger.info("Bot started successfully!")
     except Exception:
-        logger.error("Failed to start browser.", exc_info=True)
+        logger.error("Failed to start browser", exc_info=True)
         raise
 
     return browser
@@ -40,9 +40,9 @@ def create_page(browser):
         page = context.new_page()
         page.set_default_navigation_timeout(30_000)
         page.set_default_timeout(30_000)
-        logger.info("Cookies set.")
+        logger.info("Cookies set")
     except Exception:
-        logger.error("Failed to create browser context or page.", exc_info=True)
+        logger.error("Failed to create browser context or page", exc_info=True)
         raise
 
     return context, page
@@ -51,11 +51,11 @@ def create_page(browser):
 def open_site(page):
     # Открывает сайт.
     try:
-        logger.info("Loading site...")
+        logger.info("Loading site..")
         page.goto(config.SITE_URL, wait_until="domcontentloaded")
-        logger.info("Site opened.")
+        logger.info("OK")
     except Exception:
-        logger.error("Failed to open site.", exc_info=True)
+        logger.error("Failed to open site", exc_info=True)
         raise
 
 
@@ -67,9 +67,8 @@ def select_live_tab(page):
         live_tab.click()
         page.wait_for_selector("#table_live tr.tds", state="attached", timeout=30_000)
         page.wait_for_timeout(1_000)
-        logger.info("Live table loaded.")
     except Exception:
-        logger.error("Failed to select Live tab or load its table.", exc_info=True)
+        logger.error("Failed to select Live tab or load its table", exc_info=True)
         raise
 
 
@@ -78,11 +77,12 @@ def refresh_live_table(page):
     try:
         live_tab = page.locator("#li_FilterLive")
         live_tab.wait_for(state="visible")
+        logger.info("Refreshing live table..")
         live_tab.click()
-        page.wait_for_timeout(2000)
-        logger.info("Live table refreshed successfully.")
+        page.wait_for_timeout(1000)
+        logger.info("Refreshed successfully")
     except Exception:
-        logger.error("Failed to refresh Live table.", exc_info=True)
+        logger.error("Failed to refresh live table", exc_info=True)
         raise
 
 

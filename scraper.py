@@ -10,36 +10,57 @@ def wait_for_match_data(page):
     try:
         page.wait_for_selector("#table_live tr.tds", state="attached", timeout=30_000)
     except Exception:
-        logger.error("Live matches not found or failed to load.", exc_info=True)
+        logger.error("Live matches not found or failed to load", exc_info=True)
         raise
 
 
-# Ждём появления коэффициентов обоих рынков.
+# Ждём появления валидных строк с коэффициентами Bet365.
 def wait_for_match_odds(page):
     try:
         page.wait_for_function(
             r"""
-            () => Array.from(document.querySelectorAll('#table_live tr.tds')).some((match) => {
-                const style = window.getComputedStyle(match);
-                if (!match.getClientRects().length || style.display === 'none' || style.visibility === 'hidden') {
-                    return false;
-                }
+            () => {
+                const hasBet365Odds = Array.from(
+                    document.querySelectorAll('td.oddstd[onclick]')
+                ).some((cell) => /,\s*["']8["']\s*,/.test(
+                    cell.getAttribute('onclick') || ''
+                ));
+                const hasVisibleOdds = Array.from(
+                    document.querySelectorAll('td.oddstd')
+                ).some((cell) => {
+                    if (cell.offsetParent === null) return false;
+                    const odds1 = cell.querySelector('p.odds1');
+                    const odds3 = cell.querySelector('p.odds3');
+                    return (odds1 && odds1.offsetParent !== null) ||
+                        (odds3 && odds3.offsetParent !== null);
+                });
+                if (!hasBet365Odds || !hasVisibleOdds) return false;
 
-                return match.querySelector('td.oddstd p.odds3') !== null;
-            }) && Array.from(document.querySelectorAll('#table_live tr.tds')).some((match) => {
-                const style = window.getComputedStyle(match);
-                if (!match.getClientRects().length || style.display === 'none' || style.visibility === 'hidden') {
-                    return false;
-                }
+                return Array.from(
+                    document.querySelectorAll('#table_live tr.tds')
+                ).some((match) => {
+                    const style = window.getComputedStyle(match);
+                    if (!match.getClientRects().length ||
+                        style.display === 'none' ||
+                        style.visibility === 'hidden') {
+                        return false;
+                    }
 
-                return match.querySelector('td.oddstd p.odds1') !== null;
-            })
+                    const matchId = match.id.match(/^tr1_(.+)$/)?.[1] ||
+                        match.getAttribute('matchid') ||
+                        match.querySelector('[id^="favM_"]')?.getAttribute('mid');
+                    const hasOdds = Array.from(
+                        match.querySelectorAll('p.odds1, p.odds3')
+                    ).some((odds) => odds.offsetParent !== null);
+                    return Boolean(matchId && hasOdds);
+                });
+            }
             """,
             timeout=30_000,
         )
-        logger.info("Over and AH odds found.")
+        logger.info("Bet365 odds found")
     except Exception:
-        logger.error("Odds not found or failed to load.", exc_info=True)
+        logger.error("Odds not found or failed to load", exc_info=True)
         raise
 
 
@@ -75,13 +96,28 @@ _MATCH_DATA_JS = r"""
         clone.querySelectorAll('.neutraity').forEach((item) => item.remove());
         return cleanText(clone.textContent);
     };
+    const hasBet365Odds = Array.from(
+        document.querySelectorAll('td.oddstd[onclick]')
+    ).some((cell) => /,\s*["']8["']\s*,/.test(
+        cell.getAttribute('onclick') || ''
+    ));
+    const hasVisibleOdds = Array.from(
+        document.querySelectorAll('td.oddstd')
+    ).some((cell) => {
+        if (cell.offsetParent === null) return false;
+        const odds1 = cell.querySelector('p.odds1');
+        const odds3 = cell.querySelector('p.odds3');
+        return (odds1 && odds1.offsetParent !== null) ||
+            (odds3 && odds3.offsetParent !== null);
+    });
+    const globalReady = hasBet365Odds && hasVisibleOdds;
 
     return Array.from(document.querySelectorAll('#table_live tr.tds'))
         .map((match) => {
             if (!isVisible(match)) return null;
 
             const favorite = match.querySelector('[id^="favM_"]');
-            const rowMatchId = match.id.match(/^tr1_(\d+)$/)?.[1];
+            const rowMatchId = match.id.match(/^tr1_(.+)$/)?.[1];
             const matchId = rowMatchId || match.getAttribute('matchid') || favorite?.getAttribute('mid') || '';
             const leagueId = match.getAttribute('sclassid') || '';
             const status = match.querySelector('td.status');
@@ -96,13 +132,20 @@ _MATCH_DATA_JS = r"""
             const ahHomeOdd = cleanText(oddsCells[0]?.querySelector('p.odds1')?.textContent);
             const ahHandicap = cleanText(oddsCells[1]?.querySelector('p.odds1')?.textContent);
             const ahAwayOdd = cleanText(oddsCells[2]?.querySelector('p.odds1')?.textContent);
-            if (!match.querySelector('td.oddstd p.odds3, td.oddstd p.odds1')) {
+            const hasOdds = Array.from(
+                match.querySelectorAll('p.odds1, p.odds3')
+            ).some((odds) => odds.offsetParent !== null);
+            if (!globalReady || !matchId || !hasOdds) {
                 return null;
             }
 
             const homeCell = match.querySelector('td[id^="ht_"]');
             const awayCell = match.querySelector('td[id^="gt_"]');
-            const scoreText = cleanText(homeCell?.nextElementSibling?.textContent);
+            const scoreText = cleanText(
+                match.querySelector(
+                    'td.blue.handpoint[onclick*="soccerInPage.detail"]'
+                )?.textContent
+            );
             const score = scoreText.match(/(\d+)\s*[-:]\s*(\d+)/);
 
             return {
@@ -150,7 +193,7 @@ def _load_all_matches_data(page) -> list[Match]:
             for match_data in raw_matches
         ]
     except Exception:
-        logger.error("Cannot load all matches data from DOM.", exc_info=True)
+        logger.error("Cannot load all matches data from DOM", exc_info=True)
         raise
 
 
@@ -172,14 +215,14 @@ def _collect_current_matches(page):
             match_data.league = league_names.get(match_data.league_id, "")
 
             if not match_data.teams:
-                logger.warning("Match %s has no team data; skipping.", match_id)
+                logger.warning("Match %s has no team data; skipping", match_id)
                 continue
 
             matches.append(match_data)
 
         return matches
     except Exception:
-        logger.error("Failed to collect current match snapshot.", exc_info=True)
+        logger.error("Failed to collect current match snapshot", exc_info=True)
         raise
 
 
@@ -206,13 +249,13 @@ def scrape_matches(page):
         _write_matches_total(matches)
         match_ids = ", ".join(match.match_id for match in matches)
         logger.info(
-            "Matches found: %d%s",
+            "Active matches: %d%s",
             len(matches),
             f" ({match_ids})" if match_ids else "",
         )
         return matches
     except Exception:
-        logger.error("Failed to scrape match data.", exc_info=True)
+        logger.error("Failed to scrape match data", exc_info=True)
         raise
 
 
@@ -268,7 +311,7 @@ class _LiveWatch:
             if updated_matches:
                 self._on_matches_update(updated_matches)
         except Exception:
-            logger.error("Failed to process live match update.", exc_info=True)
+            logger.error("Failed to process live match update", exc_info=True)
             raise
 
     # Сверяем полный снимок после обновления и забываем исчезнувшие матчи.
@@ -300,14 +343,14 @@ class _LiveWatch:
                 self._on_matches_deleted(deleted_ids)
 
             logger.info(
-                "Matches updated: added %d (%s) deleted %d (%s)",
+                "Matches updated: Added %d (%s) Deleted %d (%s)",
                 len(added_ids),
                 ", ".join(added_ids),
                 len(deleted_ids),
                 ", ".join(deleted_ids),
             )
         except Exception:
-            logger.error("Failed to reconcile matches after refresh.", exc_info=True)
+            logger.error("Failed to reconcile matches after refresh", exc_info=True)
             raise
 
     # Останавливаем наблюдатель за изменениями DOM.
@@ -329,9 +372,9 @@ class _LiveWatch:
                 self._observer_key,
             )
             self._stopped = True
-            logger.info("Live match monitoring stopped.")
+            logger.info("Live match monitoring stopped")
         except Exception:
-            logger.error("Failed to stop live match monitoring.", exc_info=True)
+            logger.error("Failed to stop live match monitoring", exc_info=True)
             raise
 
 
@@ -372,15 +415,42 @@ def start_live_watch(
                 if (!liveTable) {
                     throw new Error('#table_live not found.');
                 }
-                const observationRoot = liveTable.parentElement || liveTable;
+                const belongsToLiveTable = (node) => {
+                    const element = node.nodeType === Node.ELEMENT_NODE
+                        ? node
+                        : node.parentElement;
+                    return Boolean(
+                        element && element.closest('table#table_live')
+                    );
+                };
+                const containsLiveTable = (node) => {
+                    const element = node.nodeType === Node.ELEMENT_NODE
+                        ? node
+                        : node.parentElement;
+                    return Boolean(
+                        element && (
+                            element.matches('table#table_live') ||
+                            element.querySelector('table#table_live')
+                        )
+                    );
+                };
 
-                const observer = new MutationObserver(() => {
-                    window[callbackName]();
+                const observer = new MutationObserver((records) => {
+                    const liveTableChanged = records.some((record) => {
+                        if (belongsToLiveTable(record.target)) return true;
+                        return [...record.addedNodes, ...record.removedNodes].some(
+                            (node) => belongsToLiveTable(node) ||
+                                containsLiveTable(node)
+                        );
+                    });
+                    if (liveTableChanged) window[callbackName]();
                 });
-                observer.observe(observationRoot, {
+                observer.observe(document.documentElement, {
                     childList: true,
                     subtree: true,
                     characterData: true,
+                    attributes: true,
+                    attributeFilter: ['class', 'style'],
                 });
                 window[observerKey] = observer;
             }
@@ -388,8 +458,7 @@ def start_live_watch(
             [callback_name, observer_key],
         )
 
-        logger.info("Live match monitoring started.")
         return live_watch
     except Exception:
-        logger.error("Failed to start live match monitoring.", exc_info=True)
+        logger.error("Failed to start live match monitoring", exc_info=True)
         raise

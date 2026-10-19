@@ -1,5 +1,5 @@
 SITE_URL = "https://www.goaloo.com/"
-HEADLESS = False
+HEADLESS = True
 LIVE_REFRESH_INTERVAL_SECONDS = (100, 120)
 
 SITE_COOKIES = [

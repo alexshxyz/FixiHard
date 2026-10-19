@@ -40,14 +40,14 @@ def main():
                     *config.LIVE_REFRESH_INTERVAL_SECONDS
                 )
     except KeyboardInterrupt:
-        logger.info("Bot stopped by user.")
+        logger.info("Bot stopped by user")
     finally:
         if live_watch is not None:
             live_watch.stop()
         browser.close()
-        logger.info("Browser closed.")
+        logger.info("Browser closed")
         playwright.stop()
-        logger.info("Playwright stopped.")
+        logger.info("Playwright stopped")
 
 
 if __name__ == "__main__":
