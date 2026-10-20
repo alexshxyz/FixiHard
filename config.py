@@ -1,7 +1,11 @@
+# Конфигурация сайта
 SITE_URL = "https://www.goaloo.com/"
 HEADLESS = True
+
+# Интервал обновления таблицы матчей
 LIVE_REFRESH_INTERVAL_SECONDS = (100, 120)
 
+# Куки для сайта
 SITE_COOKIES = [
 	{"name": "goaloo_SelCompany_V2", "value": "8", "domain": "www.goaloo.com", "path": "/"},
 	{"name": "Default_TimeZone", "value": "3", "domain": "www.goaloo.com", "path": "/"},

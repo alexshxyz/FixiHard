@@ -6,6 +6,7 @@ from live_watch import _LiveWatch
 from models import Match
 
 
+# Проверяет, что глобальные коэффициенты Bet365 загружены и видимы.
 _GLOBAL_ODDS_READY_JS = r"""
 (() => {
     const hasBet365Odds = Array.from(
@@ -29,7 +30,7 @@ _GLOBAL_ODDS_READY_JS = r"""
 
 # Ждём появления строк матчей.
 def wait_for_match_data(page):
-    page.wait_for_selector("#table_live tr.tds", state="attached", timeout=30_000)
+    page.wait_for_selector("#table_live tr.tds", state="attached", timeout=10_000)
 
 
 # Ждём появления валидных строк с коэффициентами Bet365.
@@ -229,7 +230,7 @@ def _write_matches_total(matches, output_path: Path | None = None):
     )
 
 
-    # Ждём и собираем матчи при первоначальном запуске.
+# Ждём и собираем матчи при первоначальном запуске.
 def scrape_matches(page, log_odds_found=True):
     wait_for_match_data(page)
     wait_for_match_odds(page, log_success=log_odds_found)

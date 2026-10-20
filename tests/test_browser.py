@@ -121,7 +121,7 @@ class BrowserFunctionTests(unittest.TestCase):
         page.locator.return_value.wait_for.assert_called_once_with(state="visible")
         page.locator.return_value.click.assert_called_once_with()
         page.wait_for_selector.assert_called_once_with(
-            "#table_live tr.tds", state="attached", timeout=30_000
+            "#table_live tr.tds", state="attached", timeout=10_000
         )
         page.wait_for_timeout.assert_called_once_with(1_000)
 

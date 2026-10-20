@@ -20,7 +20,7 @@ class ScraperWaitTests(unittest.TestCase):
         scraper.wait_for_match_data(page)
 
         page.wait_for_selector.assert_called_once_with(
-            "#table_live tr.tds", state="attached", timeout=30_000
+            "#table_live tr.tds", state="attached", timeout=10_000
         )
 
     def test_wait_for_match_data_propagates_timeout(self):
