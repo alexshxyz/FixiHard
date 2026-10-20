@@ -57,10 +57,10 @@ def wait_for_match_odds(page, log_success=True):
                     const matchId = match.id.match(/^tr1_(.+)$/)?.[1] ||
                         match.getAttribute('matchid') ||
                         match.querySelector('[id^="favM_"]')?.getAttribute('mid');
-                    const hasOdds = Array.from(
-                        match.querySelectorAll('p.odds1, p.odds3')
-                    ).some((odds) => odds.offsetParent !== null);
-                    return Boolean(matchId && hasOdds);
+                    const hasOddsElement = Boolean(
+                        match.querySelector('p.odds1, p.odds3')
+                    );
+                    return Boolean(matchId && hasOddsElement);
                 });
             }
             """.replace("__GLOBAL_ODDS_READY__", _GLOBAL_ODDS_READY_JS),
@@ -127,10 +127,10 @@ _MATCH_DATA_JS = r"""
             const ahHomeOdd = cleanText(oddsCells[0]?.querySelector('p.odds1')?.textContent);
             const ahHandicap = cleanText(oddsCells[1]?.querySelector('p.odds1')?.textContent);
             const ahAwayOdd = cleanText(oddsCells[2]?.querySelector('p.odds1')?.textContent);
-            const hasOdds = Array.from(
-                match.querySelectorAll('p.odds1, p.odds3')
-            ).some((odds) => odds.offsetParent !== null);
-            if (!globalReady || !matchId || !hasOdds) {
+            const hasOddsElement = Boolean(
+                match.querySelector('p.odds1, p.odds3')
+            );
+            if (!globalReady || !matchId || !hasOddsElement) {
                 return null;
             }
 
