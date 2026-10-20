@@ -13,8 +13,7 @@ class Match:
     home_team: str = ""
     away_team: str = ""
     match_time: str = ""
-    home_score: str = ""
-    away_score: str = ""
+    score: str = ""
     redcards: int = 0
 
     over_odd: str = ""
@@ -31,13 +30,6 @@ class Match:
             return f"{self.home_team} - {self.away_team}"
         return ""
 
-    @property
-    def score(self) -> str:
-        # Возвращает строку вида '1 - 0'.
-        if self.home_score and self.away_score:
-            return f"{self.home_score} - {self.away_score}"
-        return ""
-
     def to_dict(self) -> dict:
         # Преобразует объект в словарь для совместимости с логированием или сериализацией.
         return asdict(self)
@@ -50,8 +42,7 @@ class Match:
             "home_team": self.home_team,
             "away_team": self.away_team,
             "match_time": self.match_time,
-            "home_score": self.home_score,
-            "away_score": self.away_score,
+            "score": self.score,
             "redcards": self.redcards,
         }
 
@@ -71,7 +62,7 @@ class Match:
 
     @classmethod
     def from_dict(cls, data: dict) -> "Match":
-        # Создаёт объект из словаря, чтобы постепенно мигрировать с dict на модели.
+        # Создаёт объект из словаря с данными матча.
         return cls(
             match_id=str(data.get("match_id", "")),
             league_id=str(data.get("league_id", "")),
@@ -79,8 +70,7 @@ class Match:
             home_team=str(data.get("home_team", "")),
             away_team=str(data.get("away_team", "")),
             match_time=str(data.get("match_time", "")),
-            home_score=str(data.get("home_score", "")),
-            away_score=str(data.get("away_score", "")),
+            score=str(data.get("score", "")),
             redcards=int(data.get("redcards", 0)),
             over_odd=str(data.get("over_odd", "")),
             under_odd=str(data.get("under_odd", "")),
