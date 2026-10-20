@@ -132,6 +132,21 @@ class LiveWatchTests(unittest.TestCase):
             "",
         )
 
+    def test_reconcile_logs_match_counts_before_update_callbacks(self):
+        watch = self._make_watch(
+            [self.initial, Match(match_id="match-2", score="0:0")]
+        )
+        events = []
+        changed = Match(match_id="match-1", score="1:0")
+        added = Match(match_id="match-3", score="0:0")
+        self.logger.info.side_effect = lambda *args: events.append("summary")
+        self.on_update.side_effect = lambda _matches: events.append("update")
+        self.on_deleted.side_effect = lambda _ids: events.append("delete")
+
+        watch.reconcile_after_refresh([changed, added])
+
+        self.assertEqual(events, ["summary", "update", "delete"])
+
     def test_reconcile_reports_deleted_matches_and_updates_snapshot(self):
         self.watch.reconcile_after_refresh([])
 
@@ -199,7 +214,13 @@ class LiveWatchTests(unittest.TestCase):
 
         self.assertEqual(self.watch._matches_by_id, {"match-1": updated})
         self.assertEqual(self.watch._snapshot_by_id, {"match-1": updated})
-        self.logger.info.assert_not_called()
+        self.logger.info.assert_called_once_with(
+            "Matches updated: Added %d (%s) Deleted %d (%s)",
+            0,
+            "",
+            0,
+            "",
+        )
 
     def test_stop_disconnects_observer_and_logs(self):
         self.watch.stop()

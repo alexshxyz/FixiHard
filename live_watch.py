@@ -66,11 +66,6 @@ class _LiveWatch:
         self._matches_by_id = current_by_id
         self._snapshot_by_id = dict(current_by_id)
 
-        if changed_matches:
-            self._on_matches_update(changed_matches)
-        if deleted_ids and self._on_matches_deleted is not None:
-            self._on_matches_deleted(deleted_ids)
-
         logger.info(
             "Matches updated: Added %d (%s) Deleted %d (%s)",
             len(added_ids),
@@ -78,6 +73,11 @@ class _LiveWatch:
             len(deleted_ids),
             ", ".join(deleted_ids),
         )
+
+        if changed_matches:
+            self._on_matches_update(changed_matches)
+        if deleted_ids and self._on_matches_deleted is not None:
+            self._on_matches_deleted(deleted_ids)
 
     # Останавливаем наблюдатель за изменениями DOM.
     def stop(self):
