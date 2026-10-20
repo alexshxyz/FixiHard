@@ -124,7 +124,7 @@ _MATCH_DATA_JS = r"""
             const status = match.querySelector('td.status');
             const matchTime =
                 readText(match, 'td.status span[id^="got_"]') ||
-                cleanText(status?.getAttribute('title'));
+                cleanText(status?.textContent);
 
             const oddsCells = Array.from(match.querySelectorAll('td.oddstd'));
             const overOdd = cleanText(oddsCells[0]?.querySelector('p.odds3')?.textContent);
@@ -142,6 +142,16 @@ _MATCH_DATA_JS = r"""
 
             const homeCell = match.querySelector('td[id^="ht_"]');
             const awayCell = match.querySelector('td[id^="gt_"]');
+            const redCardCount = (cell, selector) => {
+                const count = Number.parseInt(
+                    cleanText(cell?.querySelector(selector)?.textContent),
+                    10
+                );
+                return Number.isNaN(count) ? 0 : count;
+            };
+            const redcards =
+                redCardCount(homeCell, '[id^="redcard1_"] .redcard') +
+                redCardCount(awayCell, '[id^="redcard2_"] .redcard');
             const scoreText = cleanText(
                 match.querySelector(
                     'td.blue.handpoint[onclick*="soccerInPage.detail"]'
@@ -163,6 +173,7 @@ _MATCH_DATA_JS = r"""
                 away_team: teamName(awayCell?.querySelector('[id^="team2_"]')),
                 home_score: score ? score[1] : '',
                 away_score: score ? score[2] : '',
+                redcards: redcards,
             };
         })
         .filter((match) => match !== null);
@@ -184,6 +195,7 @@ def _load_all_matches_data(page) -> list[Match]:
                 match_time=match_data["match_time"],
                 home_score=match_data["home_score"],
                 away_score=match_data["away_score"],
+                redcards=match_data["redcards"],
                 over_odd=match_data["over_odd"],
                 under_odd=match_data["under_odd"],
                 total=match_data["total"],

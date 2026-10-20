@@ -15,6 +15,7 @@ class Match:
     match_time: str = ""
     home_score: str = ""
     away_score: str = ""
+    redcards: int = 0
 
     over_odd: str = ""
     under_odd: str = ""
@@ -41,7 +42,7 @@ class Match:
         # Преобразует объект в словарь для совместимости с логированием или сериализацией.
         return asdict(self)
 
-    def to_match_data_dict(self) -> dict[str, str]:
+    def to_match_data_dict(self) -> dict[str, str | int]:
         return {
             "match_id": self.match_id,
             "league_id": self.league_id,
@@ -51,6 +52,7 @@ class Match:
             "match_time": self.match_time,
             "home_score": self.home_score,
             "away_score": self.away_score,
+            "redcards": self.redcards,
         }
 
     def to_market_data_dict(self) -> dict[str, dict[str, str]]:
@@ -79,6 +81,7 @@ class Match:
             match_time=str(data.get("match_time", "")),
             home_score=str(data.get("home_score", "")),
             away_score=str(data.get("away_score", "")),
+            redcards=int(data.get("redcards", 0)),
             over_odd=str(data.get("over_odd", "")),
             under_odd=str(data.get("under_odd", "")),
             total=str(data.get("total", "")),
