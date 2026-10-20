@@ -2,7 +2,29 @@ import json
 from pathlib import Path
 
 from logger import logger
+from live_watch import _LiveWatch
 from models import Match
+
+
+_GLOBAL_ODDS_READY_JS = r"""
+(() => {
+    const hasBet365Odds = Array.from(
+        document.querySelectorAll('td.oddstd[onclick]')
+    ).some((cell) => /,\s*["']8["']\s*,/.test(
+        cell.getAttribute('onclick') || ''
+    ));
+    const hasVisibleOdds = Array.from(
+        document.querySelectorAll('td.oddstd')
+    ).some((cell) => {
+        if (cell.offsetParent === null) return false;
+        const odds1 = cell.querySelector('p.odds1');
+        const odds3 = cell.querySelector('p.odds3');
+        return (odds1 && odds1.offsetParent !== null) ||
+            (odds3 && odds3.offsetParent !== null);
+    });
+    return hasBet365Odds && hasVisibleOdds;
+})()
+"""
 
 
 # Ждём появления строк матчей.
@@ -20,21 +42,7 @@ def wait_for_match_odds(page, log_success=True):
         page.wait_for_function(
             r"""
             () => {
-                const hasBet365Odds = Array.from(
-                    document.querySelectorAll('td.oddstd[onclick]')
-                ).some((cell) => /,\s*["']8["']\s*,/.test(
-                    cell.getAttribute('onclick') || ''
-                ));
-                const hasVisibleOdds = Array.from(
-                    document.querySelectorAll('td.oddstd')
-                ).some((cell) => {
-                    if (cell.offsetParent === null) return false;
-                    const odds1 = cell.querySelector('p.odds1');
-                    const odds3 = cell.querySelector('p.odds3');
-                    return (odds1 && odds1.offsetParent !== null) ||
-                        (odds3 && odds3.offsetParent !== null);
-                });
-                if (!hasBet365Odds || !hasVisibleOdds) return false;
+                if (!__GLOBAL_ODDS_READY__) return false;
 
                 return Array.from(
                     document.querySelectorAll('#table_live tr.tds')
@@ -55,7 +63,7 @@ def wait_for_match_odds(page, log_success=True):
                     return Boolean(matchId && hasOdds);
                 });
             }
-            """,
+            """.replace("__GLOBAL_ODDS_READY__", _GLOBAL_ODDS_READY_JS),
             timeout=30_000,
         )
         if log_success:
@@ -97,21 +105,7 @@ _MATCH_DATA_JS = r"""
         clone.querySelectorAll('.neutraity').forEach((item) => item.remove());
         return cleanText(clone.textContent);
     };
-    const hasBet365Odds = Array.from(
-        document.querySelectorAll('td.oddstd[onclick]')
-    ).some((cell) => /,\s*["']8["']\s*,/.test(
-        cell.getAttribute('onclick') || ''
-    ));
-    const hasVisibleOdds = Array.from(
-        document.querySelectorAll('td.oddstd')
-    ).some((cell) => {
-        if (cell.offsetParent === null) return false;
-        const odds1 = cell.querySelector('p.odds1');
-        const odds3 = cell.querySelector('p.odds3');
-        return (odds1 && odds1.offsetParent !== null) ||
-            (odds3 && odds3.offsetParent !== null);
-    });
-    const globalReady = hasBet365Odds && hasVisibleOdds;
+    const globalReady = __GLOBAL_ODDS_READY__;
 
     return Array.from(document.querySelectorAll('#table_live tr.tds'))
         .map((match) => {
@@ -178,7 +172,7 @@ _MATCH_DATA_JS = r"""
         })
         .filter((match) => match !== null);
 }
-"""
+""".replace("__GLOBAL_ODDS_READY__", _GLOBAL_ODDS_READY_JS)
 
 
 # Загружаем данные всех подходящих матчей из DOM.
@@ -282,115 +276,6 @@ def _log_matches_updated(matches):
     )
 
 
-class _LiveWatch:
-    # Управляет подпиской на изменения списка live-матчей.
-
-    # Инициализируем наблюдатель и сохраняем начальный snapshot.
-    def __init__(
-        self,
-        page,
-        observer_key,
-        on_matches_update,
-        initial_matches,
-        on_matches_deleted=None,
-    ):
-        self._page = page
-        self._observer_key = observer_key
-        self._on_matches_update = on_matches_update
-        self._on_matches_deleted = on_matches_deleted
-        self._matches_by_id = {match.match_id: match for match in initial_matches}
-        self._snapshot_by_id = dict(self._matches_by_id)
-        self._pending_update = False
-        self._stopped = False
-
-    # Помечаем наличие изменений DOM для основного цикла.
-    def _mark_dom_change(self):
-        self._pending_update = True
-
-    # Собираем snapshot и передаём только изменённые матчи.
-    def process_pending(self):
-        try:
-            if not self._pending_update:
-                return
-
-            self._pending_update = False
-            current_matches = _collect_current_matches(self._page)
-            updated_matches = []
-            for match in current_matches:
-                if self._matches_by_id.get(match.match_id) != match:
-                    updated_matches.append(match)
-                    self._matches_by_id[match.match_id] = match
-
-            if updated_matches:
-                self._on_matches_update(updated_matches)
-        except Exception:
-            logger.error("Failed to process live match update", exc_info=True)
-            raise
-
-    # Сверяем полный снимок после обновления и забываем исчезнувшие матчи.
-    def reconcile_after_refresh(self, current_matches):
-        try:
-            current_by_id = {match.match_id: match for match in current_matches}
-            added_ids = [
-                match_id
-                for match_id in current_by_id
-                if match_id not in self._snapshot_by_id
-            ]
-            deleted_ids = [
-                match_id
-                for match_id in self._snapshot_by_id
-                if match_id not in current_by_id
-            ]
-            changed_matches = [
-                match
-                for match in current_matches
-                if self._matches_by_id.get(match.match_id) != match
-            ]
-
-            self._matches_by_id = current_by_id
-            self._snapshot_by_id = dict(current_by_id)
-
-            if changed_matches:
-                self._on_matches_update(changed_matches)
-            if deleted_ids and self._on_matches_deleted is not None:
-                self._on_matches_deleted(deleted_ids)
-
-            logger.info(
-                "Matches updated: Added %d (%s) Deleted %d (%s)",
-                len(added_ids),
-                ", ".join(added_ids),
-                len(deleted_ids),
-                ", ".join(deleted_ids),
-            )
-        except Exception:
-            logger.error("Failed to reconcile matches after refresh", exc_info=True)
-            raise
-
-    # Останавливаем наблюдатель за изменениями DOM.
-    def stop(self):
-        try:
-            if self._stopped:
-                return
-
-            self._page.evaluate(
-                """
-                (observerKey) => {
-                    const observer = window[observerKey];
-                    if (observer) {
-                        observer.disconnect();
-                        delete window[observerKey];
-                    }
-                }
-                """,
-                self._observer_key,
-            )
-            self._stopped = True
-            logger.info("Live match monitoring stopped")
-        except Exception:
-            logger.error("Failed to stop live match monitoring", exc_info=True)
-            raise
-
-
 # Запускаем наблюдение за изменениями DOM матчей.
 def start_live_watch(
     page,
@@ -413,6 +298,7 @@ def start_live_watch(
             observer_key,
             on_matches_update,
             initial_matches,
+            _collect_current_matches,
             on_matches_deleted,
         )
 
