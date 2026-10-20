@@ -43,11 +43,22 @@ def main():
         logger.info("Bot stopped by user")
     finally:
         if live_watch is not None:
-            live_watch.stop()
-        browser.close()
-        logger.info("Browser closed")
-        playwright.stop()
-        logger.info("Playwright stopped")
+            try:
+                live_watch.stop()
+            except Exception:
+                logger.error("Failed to stop live match monitoring", exc_info=True)
+
+        try:
+            browser.close()
+            logger.info("Browser closed")
+        except Exception:
+            logger.error("Failed to close browser", exc_info=True)
+
+        try:
+            playwright.stop()
+            logger.info("Playwright stopped")
+        except Exception:
+            logger.error("Failed to stop Playwright", exc_info=True)
 
 
 if __name__ == "__main__":

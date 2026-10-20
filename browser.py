@@ -11,9 +11,9 @@ def launch_browser(p):
             args=[
                 "--disable-gpu",
                 "--disable-dev-shm-usage",
+                "--disable-infobars",
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
-                "--disable-infobars",
                 "--disable-notifications",
                 "--disable-background-networking",
                 "--disable-background-timer-throttling",
@@ -97,10 +97,16 @@ def start_browser():
         context, page = create_page(browser)
         open_site(page)
         select_live_tab(page)
-    except Exception:
+    except BaseException:
         if browser is not None:
-            browser.close()
-        playwright.stop()
+            try:
+                browser.close()
+            except BaseException:
+                logger.error("Failed to close browser after startup error", exc_info=True)
+        try:
+            playwright.stop()
+        except BaseException:
+            logger.error("Failed to stop Playwright after startup error", exc_info=True)
         raise
 
     return playwright, browser, context, page
