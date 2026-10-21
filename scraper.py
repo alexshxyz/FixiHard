@@ -5,6 +5,12 @@ from pathlib import Path
 from logger import logger
 from live_watch import _LiveWatch
 from models import Match
+from timing import seconds_to_milliseconds, wait_for_seconds
+
+
+MATCH_DATA_TIMEOUT_SECONDS = 10
+MATCH_ODDS_TIMEOUT_SECONDS = 30
+ODDS_POLL_INTERVAL_SECONDS = 1
 
 
 # Проверяет, что глобальные коэффициенты Bet365 загружены и видимы.
@@ -56,14 +62,18 @@ _MATCH_ODDS_READY_JS = r"""
 
 # Ждём появления строк матчей.
 def wait_for_match_data(page):
-    page.wait_for_selector("#table_live tr.tds", state="attached", timeout=10_000)
+    page.wait_for_selector(
+        "#table_live tr.tds",
+        state="attached",
+        timeout=seconds_to_milliseconds(MATCH_DATA_TIMEOUT_SECONDS),
+    )
 
 
 # Ждём появления валидных строк с коэффициентами Bet365.
 def wait_for_match_odds(page, log_success=True):
     page.wait_for_function(
         _MATCH_ODDS_READY_JS,
-        timeout=30_000,
+        timeout=seconds_to_milliseconds(MATCH_ODDS_TIMEOUT_SECONDS),
     )
     if log_success:
         logger.info("Bet365 odds found")
@@ -78,7 +88,7 @@ def wait_for_valid_match_odds(page, timeout_seconds=60):
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             return False
-        page.wait_for_timeout(min(1_000, int(remaining * 1_000)))
+        wait_for_seconds(page, min(ODDS_POLL_INTERVAL_SECONDS, remaining))
 
 
 # Получаем названия лиг по их ID.

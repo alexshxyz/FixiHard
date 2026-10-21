@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 from models import Match
@@ -50,7 +50,7 @@ class MatchAnalyzer:
 
 		history.append(
 			{
-				"observed_at": datetime.now(timezone.utc).isoformat(),
+				"observed_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
 				"match_data": match_data,
 				"market_data": market_data,
 			}

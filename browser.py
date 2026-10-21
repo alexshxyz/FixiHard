@@ -1,5 +1,12 @@
 import config
 from logger import logger
+from timing import seconds_to_milliseconds, wait_for_seconds
+
+
+TABLE_TIMEOUT_SECONDS = 10
+PAGE_NAVIGATION_TIMEOUT_SECONDS = 30
+PAGE_TABLE_TIMEOUT_SECONDS = 20
+POST_REFRESH_WAIT_SECONDS = 1
 
 
 def launch_browser(p):
@@ -32,8 +39,12 @@ def create_page(browser):
     context = browser.new_context()
     context.add_cookies(config.SITE_COOKIES)
     page = context.new_page()
-    page.set_default_navigation_timeout(30_000)
-    page.set_default_timeout(30_000)
+    page.set_default_navigation_timeout(
+        seconds_to_milliseconds(PAGE_NAVIGATION_TIMEOUT_SECONDS)
+    )
+    page.set_default_timeout(
+        seconds_to_milliseconds(PAGE_NAVIGATION_TIMEOUT_SECONDS)
+    )
     logger.info("Cookies set")
 
     return context, page
@@ -51,8 +62,12 @@ def select_live_tab(page):
     live_tab = page.locator("#li_FilterLive")
     live_tab.wait_for(state="visible")
     live_tab.click()
-    page.wait_for_selector("#table_live tr.tds", state="attached", timeout=10_000)
-    page.wait_for_timeout(1_000)
+    page.wait_for_selector(
+        "#table_live tr.tds",
+        state="attached",
+        timeout=seconds_to_milliseconds(TABLE_TIMEOUT_SECONDS),
+    )
+    wait_for_seconds(page, POST_REFRESH_WAIT_SECONDS)
 
 
 def refresh_live_table(page):
@@ -61,8 +76,10 @@ def refresh_live_table(page):
     live_tab.wait_for(state="visible")
     logger.info("Refreshing live table..")
     live_tab.click()
-    page.locator("table#table_live").wait_for(timeout=10000)
-    page.wait_for_timeout(1000)
+    page.locator("table#table_live").wait_for(
+        timeout=seconds_to_milliseconds(TABLE_TIMEOUT_SECONDS)
+    )
+    wait_for_seconds(page, POST_REFRESH_WAIT_SECONDS)
     from scraper import wait_for_valid_match_odds
 
     if not wait_for_valid_match_odds(page):
@@ -75,14 +92,19 @@ def refresh_page(page):
     # Полностью перезагружает страницу и ждёт готовности данных Live.
     logger.info("Refreshing page...")
     try:
-        page.reload(wait_until="domcontentloaded", timeout=30_000)
-        page.locator("table#table_live").wait_for(timeout=20_000)
+        page.reload(
+            wait_until="domcontentloaded",
+            timeout=seconds_to_milliseconds(PAGE_NAVIGATION_TIMEOUT_SECONDS),
+        )
+        page.locator("table#table_live").wait_for(
+            timeout=seconds_to_milliseconds(PAGE_TABLE_TIMEOUT_SECONDS)
+        )
 
         from scraper import wait_for_valid_match_odds
 
         if not wait_for_valid_match_odds(page):
             return False
-        page.wait_for_timeout(1_000)
+        wait_for_seconds(page, POST_REFRESH_WAIT_SECONDS)
         logger.info("Page refreshed")
         return True
     except Exception as error:

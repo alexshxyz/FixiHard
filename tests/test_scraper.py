@@ -6,6 +6,7 @@ from unittest.mock import Mock, call, patch
 
 import scraper
 from models import Match
+from timing import seconds_to_milliseconds
 
 
 class ScraperWaitTests(unittest.TestCase):
@@ -20,7 +21,9 @@ class ScraperWaitTests(unittest.TestCase):
         scraper.wait_for_match_data(page)
 
         page.wait_for_selector.assert_called_once_with(
-            "#table_live tr.tds", state="attached", timeout=10_000
+            "#table_live tr.tds",
+            state="attached",
+            timeout=seconds_to_milliseconds(scraper.MATCH_DATA_TIMEOUT_SECONDS),
         )
 
     def test_wait_for_match_data_propagates_timeout(self):
@@ -39,7 +42,12 @@ class ScraperWaitTests(unittest.TestCase):
         self.assertIn("return hasBet365Odds && hasVisibleOdds", script)
         self.assertIn("#table_live tr.tds", script)
         self.assertNotIn("__GLOBAL_ODDS_READY__", script)
-        page.wait_for_function.assert_called_once_with(script, timeout=30_000)
+        page.wait_for_function.assert_called_once_with(
+            script,
+            timeout=seconds_to_milliseconds(
+                scraper.MATCH_ODDS_TIMEOUT_SECONDS
+            ),
+        )
         self.logger.info.assert_called_once_with("Bet365 odds found")
 
     def test_wait_for_match_odds_can_suppress_success_log(self):
@@ -70,7 +78,9 @@ class ScraperWaitTests(unittest.TestCase):
         page.evaluate.assert_has_calls(
             [call(scraper._MATCH_ODDS_READY_JS), call(scraper._MATCH_ODDS_READY_JS)]
         )
-        page.wait_for_timeout.assert_called_once_with(1_000)
+        page.wait_for_timeout.assert_called_once_with(
+            seconds_to_milliseconds(scraper.ODDS_POLL_INTERVAL_SECONDS)
+        )
 
     def test_wait_for_valid_match_odds_returns_false_when_timeout_expires(self):
         page = Mock()

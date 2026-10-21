@@ -3,6 +3,7 @@ import unittest
 from unittest.mock import Mock, call, patch
 
 import main
+from timing import seconds_to_milliseconds
 
 
 class MainTests(unittest.TestCase):
@@ -104,7 +105,7 @@ class MainTests(unittest.TestCase):
 
         self.start_live_watch.side_effect = start_watch
 
-        with patch("main.config.PAGE_REFRESH_INTERVAL_SECONDS", 1_000):
+        with patch("main.config.PAGE_REFRESH_INTERVAL_SECONDS", 1000):
             main.main()
 
         self.start_browser.assert_called_once_with()
@@ -128,10 +129,10 @@ class MainTests(unittest.TestCase):
 
     def test_main_reloads_page_and_reattaches_live_watch_at_deadline(self):
         self.page.wait_for_timeout.side_effect = self._shutdown_after_second_wait
-        self.monotonic.side_effect = [0, 0, 1_000, 1_000, 1_010, 1_015]
+        self.monotonic.side_effect = [0, 0, 1000, 1000, 1010, 1015]
         self.start_live_watch.return_value = self.live_watch
 
-        with patch("main.config.PAGE_REFRESH_INTERVAL_SECONDS", 1_000):
+        with patch("main.config.PAGE_REFRESH_INTERVAL_SECONDS", 1000):
             main.main()
 
         self.refresh_page.assert_called_once_with(self.page)
@@ -147,12 +148,15 @@ class MainTests(unittest.TestCase):
         self.monotonic.side_effect = [0, 0, 10, 10, 10, 20]
         self.refresh_live_table.return_value = False
 
-        with patch("main.config.PAGE_REFRESH_INTERVAL_SECONDS", 1_000):
+        with patch("main.config.PAGE_REFRESH_INTERVAL_SECONDS", 1000):
             main.main()
 
         self.refresh_live_table.assert_called_once_with(self.page)
         self.page.wait_for_timeout.assert_has_calls(
-            [call(1_000), call(main.NO_MATCHES_RETRY_DELAY_MS)]
+            [
+                call(seconds_to_milliseconds(main.MAIN_LOOP_WAIT_SECONDS)),
+                call(seconds_to_milliseconds(main.NO_MATCHES_RETRY_SECONDS)),
+            ]
         )
         self.refresh_page.assert_called_once_with(self.page)
         self.reattach_live_watch.assert_called_once_with(self.page)
@@ -160,7 +164,10 @@ class MainTests(unittest.TestCase):
             [call(self.page), call(self.page, log_odds_found=False)]
         )
         self.live_watch.reconcile_after_refresh.assert_called_once_with(self.matches)
-        self.logger.warning.assert_called_once_with(main.NO_MATCHES_RETRY_MESSAGE)
+        self.logger.warning.assert_called_once_with(
+            "No matches found. Waiting %d seconds before reloading the page.",
+            main.NO_MATCHES_RETRY_SECONDS,
+        )
 
     def test_page_refresh_retries_until_odds_are_found(self):
         self.refresh_page.side_effect = [False, False, True]
@@ -170,13 +177,20 @@ class MainTests(unittest.TestCase):
         self.assertEqual(self.refresh_page.call_count, 3)
         self.page.wait_for_timeout.assert_has_calls(
             [
-                call(main.NO_MATCHES_RETRY_DELAY_MS),
-                call(main.NO_MATCHES_RETRY_DELAY_MS),
+                call(seconds_to_milliseconds(main.NO_MATCHES_RETRY_SECONDS)),
+                call(seconds_to_milliseconds(main.NO_MATCHES_RETRY_SECONDS)),
             ]
         )
         self.assertEqual(
             self.logger.warning.call_args_list,
-            [call(main.NO_MATCHES_RETRY_MESSAGE)] * 2,
+            [
+                call(
+                    "No matches found. Waiting %d seconds before reloading "
+                    "the page.",
+                    main.NO_MATCHES_RETRY_SECONDS,
+                )
+            ]
+            * 2,
         )
         self.reattach_live_watch.assert_called_once_with(self.page)
 
@@ -188,10 +202,13 @@ class MainTests(unittest.TestCase):
         self.assertIsNone(result)
         self.assertEqual(
             self.refresh_live_table.call_count,
-            main.LIVE_REFRESH_ATTEMPTS,
+            main.REFRESH_RETRY_ATTEMPTS,
         )
         self.page.wait_for_timeout.assert_has_calls(
-            [call(main.LIVE_REFRESH_RETRY_DELAY_MS)] * 2
+            [
+                call(seconds_to_milliseconds(main.LIVE_REFRESH_RETRY_SECONDS))
+            ]
+            * 2
         )
 
     def test_live_refresh_stops_retrying_when_odds_are_missing(self):
@@ -209,18 +226,18 @@ class MainTests(unittest.TestCase):
         self.refresh_live_table.side_effect = RuntimeError("live refresh failed")
         self.refresh_page.return_value = True
 
-        with patch("main.config.PAGE_REFRESH_INTERVAL_SECONDS", 1_000):
+        with patch("main.config.PAGE_REFRESH_INTERVAL_SECONDS", 1000):
             main.main()
 
         self.assertEqual(
             self.refresh_live_table.call_count,
-            main.LIVE_REFRESH_ATTEMPTS,
+            main.REFRESH_RETRY_ATTEMPTS,
         )
         self.page.wait_for_timeout.assert_has_calls(
             [
-                call(1_000),
-                call(main.LIVE_REFRESH_RETRY_DELAY_MS),
-                call(main.LIVE_REFRESH_RETRY_DELAY_MS),
+                call(seconds_to_milliseconds(main.MAIN_LOOP_WAIT_SECONDS)),
+                call(seconds_to_milliseconds(main.LIVE_REFRESH_RETRY_SECONDS)),
+                call(seconds_to_milliseconds(main.LIVE_REFRESH_RETRY_SECONDS)),
             ]
         )
         self.refresh_page.assert_called_once_with(self.page)
@@ -237,10 +254,13 @@ class MainTests(unittest.TestCase):
 
         self.assertEqual(
             self.refresh_page.call_count,
-            main.PAGE_REFRESH_ATTEMPTS,
+            main.REFRESH_RETRY_ATTEMPTS,
         )
         self.page.wait_for_timeout.assert_has_calls(
-            [call(main.PAGE_REFRESH_RETRY_DELAY_MS)] * 2
+            [
+                call(seconds_to_milliseconds(main.PAGE_REFRESH_RETRY_SECONDS))
+            ]
+            * 2
         )
         self.reattach_live_watch.assert_not_called()
 

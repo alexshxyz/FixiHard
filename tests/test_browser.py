@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import Mock, call, patch
 
 import browser
+from timing import seconds_to_milliseconds
 
 
 class BrowserFunctionTests(unittest.TestCase):
@@ -63,8 +64,12 @@ class BrowserFunctionTests(unittest.TestCase):
         browser_instance.new_context.assert_called_once_with()
         context.add_cookies.assert_called_once_with(cookies)
         context.new_page.assert_called_once_with()
-        page.set_default_navigation_timeout.assert_called_once_with(30_000)
-        page.set_default_timeout.assert_called_once_with(30_000)
+        page.set_default_navigation_timeout.assert_called_once_with(
+            seconds_to_milliseconds(browser.PAGE_NAVIGATION_TIMEOUT_SECONDS)
+        )
+        page.set_default_timeout.assert_called_once_with(
+            seconds_to_milliseconds(browser.PAGE_NAVIGATION_TIMEOUT_SECONDS)
+        )
         self.logger.info.assert_called_once_with("Cookies set")
 
     def test_create_page_accepts_empty_cookie_configuration(self):
@@ -121,9 +126,13 @@ class BrowserFunctionTests(unittest.TestCase):
         page.locator.return_value.wait_for.assert_called_once_with(state="visible")
         page.locator.return_value.click.assert_called_once_with()
         page.wait_for_selector.assert_called_once_with(
-            "#table_live tr.tds", state="attached", timeout=10_000
+            "#table_live tr.tds",
+            state="attached",
+            timeout=seconds_to_milliseconds(browser.TABLE_TIMEOUT_SECONDS),
         )
-        page.wait_for_timeout.assert_called_once_with(1_000)
+        page.wait_for_timeout.assert_called_once_with(
+            seconds_to_milliseconds(browser.POST_REFRESH_WAIT_SECONDS)
+        )
 
     def test_select_live_tab_does_not_click_when_tab_is_not_visible(self):
         page = Mock()
@@ -160,10 +169,19 @@ class BrowserFunctionTests(unittest.TestCase):
             [call("#li_FilterLive"), call("table#table_live")],
         )
         page.locator.return_value.wait_for.assert_has_calls(
-            [call(state="visible"), call(timeout=10_000)]
+            [
+                call(state="visible"),
+                call(
+                    timeout=seconds_to_milliseconds(
+                        browser.TABLE_TIMEOUT_SECONDS
+                    )
+                ),
+            ]
         )
         page.locator.return_value.click.assert_called_once_with()
-        page.wait_for_timeout.assert_called_once_with(1000)
+        page.wait_for_timeout.assert_called_once_with(
+            seconds_to_milliseconds(browser.POST_REFRESH_WAIT_SECONDS)
+        )
         wait_odds.assert_called_once_with(page)
         self.logger.info.assert_has_calls(
             [call("Refreshing live table.."), call("Refreshed successfully")]
@@ -197,12 +215,18 @@ class BrowserFunctionTests(unittest.TestCase):
         self.assertTrue(result)
         page.reload.assert_called_once_with(
             wait_until="domcontentloaded",
-            timeout=30_000,
+            timeout=seconds_to_milliseconds(
+                browser.PAGE_NAVIGATION_TIMEOUT_SECONDS
+            ),
         )
         page.locator.assert_called_once_with("table#table_live")
-        page.locator.return_value.wait_for.assert_called_once_with(timeout=20_000)
+        page.locator.return_value.wait_for.assert_called_once_with(
+            timeout=seconds_to_milliseconds(browser.PAGE_TABLE_TIMEOUT_SECONDS)
+        )
         wait_odds.assert_called_once_with(page)
-        page.wait_for_timeout.assert_called_once_with(1_000)
+        page.wait_for_timeout.assert_called_once_with(
+            seconds_to_milliseconds(browser.POST_REFRESH_WAIT_SECONDS)
+        )
         self.logger.info.assert_any_call("Page refreshed")
 
     def test_refresh_page_returns_false_when_odds_are_missing(self):
@@ -214,7 +238,9 @@ class BrowserFunctionTests(unittest.TestCase):
         self.assertFalse(result)
         page.reload.assert_called_once_with(
             wait_until="domcontentloaded",
-            timeout=30_000,
+            timeout=seconds_to_milliseconds(
+                browser.PAGE_NAVIGATION_TIMEOUT_SECONDS
+            ),
         )
         page.wait_for_timeout.assert_not_called()
         self.logger.info.assert_called_once_with("Refreshing page...")

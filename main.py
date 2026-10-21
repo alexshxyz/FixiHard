@@ -2,6 +2,7 @@ import random
 import signal
 import threading
 import time
+from functools import partial
 
 from analyzer import MatchAnalyzer
 import config
@@ -13,33 +14,39 @@ from scraper import (
     scrape_matches,
     start_live_watch,
 )
+from timing import wait_for_seconds
 
-NO_MATCHES_RETRY_DELAY_MS = 60_000
-NO_MATCHES_RETRY_MESSAGE = (
-    "No matches found. Waiting 60 seconds before reloading the page."
-)
-LIVE_REFRESH_ATTEMPTS = 3
-LIVE_REFRESH_RETRY_DELAY_MS = 5_000
-PAGE_REFRESH_ATTEMPTS = 3
-PAGE_REFRESH_RETRY_DELAY_MS = 10_000
+NO_MATCHES_RETRY_SECONDS = 60
+REFRESH_RETRY_ATTEMPTS = 3
+LIVE_REFRESH_RETRY_SECONDS = 5
+PAGE_REFRESH_RETRY_SECONDS = 10
+MAIN_LOOP_WAIT_SECONDS = 1
 
 
 class ScriptRestartRequested(Exception):
     pass
 
 
+def _wait_for_matches(page):
+    logger.warning(
+        "No matches found. Waiting %d seconds before reloading the page.",
+        NO_MATCHES_RETRY_SECONDS,
+    )
+    wait_for_seconds(page, NO_MATCHES_RETRY_SECONDS)
+
+
 def _refresh_live_table_with_retries(page):
-    for attempt in range(1, LIVE_REFRESH_ATTEMPTS + 1):
+    for attempt in range(1, REFRESH_RETRY_ATTEMPTS + 1):
         try:
             return refresh_live_table(page)
         except Exception:
             logger.exception(
                 "Live table refresh failed (attempt %d/%d)",
                 attempt,
-                LIVE_REFRESH_ATTEMPTS,
+                REFRESH_RETRY_ATTEMPTS,
             )
-            if attempt < LIVE_REFRESH_ATTEMPTS:
-                page.wait_for_timeout(LIVE_REFRESH_RETRY_DELAY_MS)
+            if attempt < REFRESH_RETRY_ATTEMPTS:
+                wait_for_seconds(page, LIVE_REFRESH_RETRY_SECONDS)
     return None
 
 
@@ -53,13 +60,13 @@ def _refresh_page_until_odds(page):
             logger.exception(
                 "Page refresh failed (attempt %d/%d)",
                 failed_attempts,
-                PAGE_REFRESH_ATTEMPTS,
+                REFRESH_RETRY_ATTEMPTS,
             )
-            if failed_attempts >= PAGE_REFRESH_ATTEMPTS:
+            if failed_attempts >= REFRESH_RETRY_ATTEMPTS:
                 raise ScriptRestartRequested(
                     "Page refresh failed after all retries"
                 )
-            page.wait_for_timeout(PAGE_REFRESH_RETRY_DELAY_MS)
+            wait_for_seconds(page, PAGE_REFRESH_RETRY_SECONDS)
             continue
 
         if refreshed:
@@ -67,8 +74,40 @@ def _refresh_page_until_odds(page):
             return
 
         failed_attempts = 0
-        logger.warning(NO_MATCHES_RETRY_MESSAGE)
-        page.wait_for_timeout(NO_MATCHES_RETRY_DELAY_MS)
+        _wait_for_matches(page)
+
+
+def _request_shutdown(shutdown_requested, _signum, _frame):
+    shutdown_requested.set()
+
+
+def _record_match_updates(analyzer, matches):
+    analyzer.record_updates(matches)
+    _log_matches_updated(matches)
+
+
+def _refresh_page_and_reconcile(page, live_watch):
+    _refresh_page_until_odds(page)
+    refreshed_matches = scrape_matches(page, log_odds_found=False)
+    live_watch.reconcile_after_refresh(refreshed_matches)
+
+
+def _refresh_live_table_and_reconcile(page, live_watch):
+    live_refresh_result = _refresh_live_table_with_retries(page)
+    page_was_reloaded = live_refresh_result is not True
+    if page_was_reloaded:
+        if live_refresh_result is False:
+            _wait_for_matches(page)
+        else:
+            logger.warning(
+                "Live table refresh failed after all retries. "
+                "Falling back to a page refresh."
+            )
+        _refresh_page_until_odds(page)
+
+    refreshed_matches = scrape_matches(page, log_odds_found=False)
+    live_watch.reconcile_after_refresh(refreshed_matches)
+    return page_was_reloaded
 
 
 def run_forever():
@@ -85,11 +124,10 @@ def main():
     browser = None
     shutdown_requested = threading.Event()
 
-    def request_shutdown(_signum, _frame):
-        shutdown_requested.set()
-
     previous_handlers = {
-        signum: signal.signal(signum, request_shutdown)
+        signum: signal.signal(
+            signum, partial(_request_shutdown, shutdown_requested)
+        )
         for signum in (signal.SIGINT, signal.SIGTERM)
     }
     try:
@@ -98,13 +136,9 @@ def main():
         analyzer = MatchAnalyzer()
         analyzer.initialize(initial_matches)
 
-        def on_matches_update(matches):
-            analyzer.record_updates(matches)
-            _log_matches_updated(matches)
-
         live_watch = start_live_watch(
             page,
-            on_matches_update,
+            partial(_record_match_updates, analyzer),
             initial_matches,
             on_matches_deleted=analyzer.remove_matches,
         )
@@ -115,13 +149,11 @@ def main():
             time.monotonic() + config.PAGE_REFRESH_INTERVAL_SECONDS
         )
         while not shutdown_requested.is_set():
-            page.wait_for_timeout(1_000)
+            wait_for_seconds(page, MAIN_LOOP_WAIT_SECONDS)
             live_watch.process_pending()
             now = time.monotonic()
             if now >= next_page_refresh_at:
-                _refresh_page_until_odds(page)
-                refreshed_matches = scrape_matches(page, log_odds_found=False)
-                live_watch.reconcile_after_refresh(refreshed_matches)
+                _refresh_page_and_reconcile(page, live_watch)
                 next_page_refresh_at = (
                     time.monotonic() + config.PAGE_REFRESH_INTERVAL_SECONDS
                 )
@@ -129,20 +161,9 @@ def main():
                     *config.LIVE_REFRESH_INTERVAL_SECONDS
                 )
             elif now >= next_refresh_at:
-                live_refresh_result = _refresh_live_table_with_retries(page)
-                page_was_reloaded = live_refresh_result is not True
-                if live_refresh_result is not True:
-                    if live_refresh_result is False:
-                        logger.warning(NO_MATCHES_RETRY_MESSAGE)
-                        page.wait_for_timeout(NO_MATCHES_RETRY_DELAY_MS)
-                    else:
-                        logger.warning(
-                            "Live table refresh failed after all retries. "
-                            "Falling back to a page refresh."
-                        )
-                    _refresh_page_until_odds(page)
-                refreshed_matches = scrape_matches(page, log_odds_found=False)
-                live_watch.reconcile_after_refresh(refreshed_matches)
+                page_was_reloaded = _refresh_live_table_and_reconcile(
+                    page, live_watch
+                )
                 next_refresh_at = time.monotonic() + random.randint(
                     *config.LIVE_REFRESH_INTERVAL_SECONDS
                 )
