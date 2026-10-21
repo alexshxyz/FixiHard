@@ -1,4 +1,5 @@
 import json
+import time
 from pathlib import Path
 
 from logger import logger
@@ -27,6 +28,31 @@ _GLOBAL_ODDS_READY_JS = r"""
 })()
 """
 
+_MATCH_ODDS_READY_JS = r"""
+() => {
+    if (!__GLOBAL_ODDS_READY__) return false;
+
+    return Array.from(
+        document.querySelectorAll('#table_live tr.tds')
+    ).some((match) => {
+        const style = window.getComputedStyle(match);
+        if (!match.getClientRects().length ||
+            style.display === 'none' ||
+            style.visibility === 'hidden') {
+            return false;
+        }
+
+        const matchId = match.id.match(/^tr1_(.+)$/)?.[1] ||
+            match.getAttribute('matchid') ||
+            match.querySelector('[id^="favM_"]')?.getAttribute('mid');
+        const hasOddsElement = Boolean(
+            match.querySelector('p.odds1, p.odds3')
+        );
+        return Boolean(matchId && hasOddsElement);
+    });
+}
+""".replace("__GLOBAL_ODDS_READY__", _GLOBAL_ODDS_READY_JS)
+
 
 # Ждём появления строк матчей.
 def wait_for_match_data(page):
@@ -36,34 +62,23 @@ def wait_for_match_data(page):
 # Ждём появления валидных строк с коэффициентами Bet365.
 def wait_for_match_odds(page, log_success=True):
     page.wait_for_function(
-        r"""
-        () => {
-            if (!__GLOBAL_ODDS_READY__) return false;
-
-            return Array.from(
-                document.querySelectorAll('#table_live tr.tds')
-            ).some((match) => {
-                const style = window.getComputedStyle(match);
-                if (!match.getClientRects().length ||
-                    style.display === 'none' ||
-                    style.visibility === 'hidden') {
-                    return false;
-                }
-
-                const matchId = match.id.match(/^tr1_(.+)$/)?.[1] ||
-                    match.getAttribute('matchid') ||
-                    match.querySelector('[id^="favM_"]')?.getAttribute('mid');
-                const hasOddsElement = Boolean(
-                    match.querySelector('p.odds1, p.odds3')
-                );
-                return Boolean(matchId && hasOddsElement);
-            });
-        }
-        """.replace("__GLOBAL_ODDS_READY__", _GLOBAL_ODDS_READY_JS),
+        _MATCH_ODDS_READY_JS,
         timeout=30_000,
     )
     if log_success:
         logger.info("Bet365 odds found")
+
+
+def wait_for_valid_match_odds(page, timeout_seconds=60):
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        if page.evaluate(_MATCH_ODDS_READY_JS):
+            return True
+
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False
+        page.wait_for_timeout(min(1_000, int(remaining * 1_000)))
 
 
 # Получаем названия лиг по их ID.
@@ -285,6 +300,18 @@ def start_live_watch(
         live_watch._mark_dom_change()
 
     page.expose_function(callback_name, on_dom_change)
+    _install_live_watch_observer(page, callback_name, observer_key)
+
+    return live_watch
+
+
+def reattach_live_watch(page):
+    callback_name = f"__scraper_dom_changed_{id(page)}"
+    observer_key = f"__scraper_live_observer_{id(page)}"
+    _install_live_watch_observer(page, callback_name, observer_key)
+
+
+def _install_live_watch_observer(page, callback_name, observer_key):
     page.evaluate(
         """
         ([callbackName, observerKey]) => {
@@ -334,5 +361,3 @@ def start_live_watch(
         """,
         [callback_name, observer_key],
     )
-
-    return live_watch

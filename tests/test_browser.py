@@ -148,18 +148,35 @@ class BrowserFunctionTests(unittest.TestCase):
         page.locator.return_value.click.assert_called_once_with()
         page.wait_for_timeout.assert_not_called()
 
-    def test_refresh_live_table_waits_clicks_and_logs_success(self):
+    def test_refresh_live_table_checks_odds_after_click(self):
         page = Mock()
 
-        browser.refresh_live_table(page)
+        with patch("scraper.wait_for_valid_match_odds", return_value=True) as wait_odds:
+            result = browser.refresh_live_table(page)
 
-        page.locator.assert_called_once_with("#li_FilterLive")
-        page.locator.return_value.wait_for.assert_called_once_with(state="visible")
+        self.assertTrue(result)
+        self.assertEqual(
+            page.locator.call_args_list,
+            [call("#li_FilterLive"), call("table#table_live")],
+        )
+        page.locator.return_value.wait_for.assert_has_calls(
+            [call(state="visible"), call(timeout=10_000)]
+        )
         page.locator.return_value.click.assert_called_once_with()
         page.wait_for_timeout.assert_called_once_with(1000)
+        wait_odds.assert_called_once_with(page)
         self.logger.info.assert_has_calls(
             [call("Refreshing live table.."), call("Refreshed successfully")]
         )
+
+    def test_refresh_live_table_returns_false_when_odds_are_missing(self):
+        page = Mock()
+
+        with patch("scraper.wait_for_valid_match_odds", return_value=False):
+            result = browser.refresh_live_table(page)
+
+        self.assertFalse(result)
+        self.logger.info.assert_called_once_with("Refreshing live table..")
 
     def test_refresh_live_table_propagates_click_error_without_success_log(self):
         page = Mock()
@@ -171,6 +188,49 @@ class BrowserFunctionTests(unittest.TestCase):
         page.wait_for_timeout.assert_not_called()
         self.logger.info.assert_called_once_with("Refreshing live table..")
 
+    def test_refresh_page_reloads_and_waits_for_valid_data(self):
+        page = Mock()
+
+        with patch("scraper.wait_for_valid_match_odds", return_value=True) as wait_odds:
+            result = browser.refresh_page(page)
+
+        self.assertTrue(result)
+        page.reload.assert_called_once_with(
+            wait_until="domcontentloaded",
+            timeout=30_000,
+        )
+        page.locator.assert_called_once_with("table#table_live")
+        page.locator.return_value.wait_for.assert_called_once_with(timeout=20_000)
+        wait_odds.assert_called_once_with(page)
+        page.wait_for_timeout.assert_called_once_with(1_000)
+        self.logger.info.assert_any_call("Page refreshed")
+
+    def test_refresh_page_returns_false_when_odds_are_missing(self):
+        page = Mock()
+
+        with patch("scraper.wait_for_valid_match_odds", return_value=False):
+            result = browser.refresh_page(page)
+
+        self.assertFalse(result)
+        page.reload.assert_called_once_with(
+            wait_until="domcontentloaded",
+            timeout=30_000,
+        )
+        page.wait_for_timeout.assert_not_called()
+        self.logger.info.assert_called_once_with("Refreshing page...")
+
+    def test_refresh_page_logs_and_reraises_refresh_errors(self):
+        page = Mock()
+        page.reload.side_effect = RuntimeError("navigation failed")
+
+        with self.assertRaisesRegex(RuntimeError, "navigation failed"):
+            browser.refresh_page(page)
+
+        self.logger.error.assert_called_once_with(
+            "Failed to refresh page: %s",
+            page.reload.side_effect,
+            exc_info=True,
+        )
 
 class StartBrowserTests(unittest.TestCase):
     def setUp(self):

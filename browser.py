@@ -61,8 +61,33 @@ def refresh_live_table(page):
     live_tab.wait_for(state="visible")
     logger.info("Refreshing live table..")
     live_tab.click()
+    page.locator("table#table_live").wait_for(timeout=10000)
     page.wait_for_timeout(1000)
+    from scraper import wait_for_valid_match_odds
+
+    if not wait_for_valid_match_odds(page):
+        return False
     logger.info("Refreshed successfully")
+    return True
+
+
+def refresh_page(page):
+    # Полностью перезагружает страницу и ждёт готовности данных Live.
+    logger.info("Refreshing page...")
+    try:
+        page.reload(wait_until="domcontentloaded", timeout=30_000)
+        page.locator("table#table_live").wait_for(timeout=20_000)
+
+        from scraper import wait_for_valid_match_odds
+
+        if not wait_for_valid_match_odds(page):
+            return False
+        page.wait_for_timeout(1_000)
+        logger.info("Page refreshed")
+        return True
+    except Exception as error:
+        logger.error("Failed to refresh page: %s", error, exc_info=True)
+        raise
 
 
 def start_browser():

@@ -5,9 +5,26 @@ import time
 
 from analyzer import MatchAnalyzer
 import config
-from browser import refresh_live_table, start_browser
+from browser import refresh_live_table, refresh_page, start_browser
 from logger import logger
-from scraper import _log_matches_updated, scrape_matches, start_live_watch
+from scraper import (
+    _log_matches_updated,
+    reattach_live_watch,
+    scrape_matches,
+    start_live_watch,
+)
+
+NO_MATCHES_RETRY_DELAY_MS = 60_000
+NO_MATCHES_RETRY_MESSAGE = (
+    "No matches found. Waiting 60 seconds before reloading the page."
+)
+
+
+def _refresh_page_until_odds(page):
+    while not refresh_page(page):
+        logger.warning(NO_MATCHES_RETRY_MESSAGE)
+        page.wait_for_timeout(NO_MATCHES_RETRY_DELAY_MS)
+    reattach_live_watch(page)
 
 
 def main():
@@ -41,16 +58,39 @@ def main():
         next_refresh_at = time.monotonic() + random.randint(
             *config.LIVE_REFRESH_INTERVAL_SECONDS
         )
+        next_page_refresh_at = (
+            time.monotonic() + config.PAGE_REFRESH_INTERVAL_SECONDS
+        )
         while not shutdown_requested.is_set():
             page.wait_for_timeout(1_000)
             live_watch.process_pending()
-            if time.monotonic() >= next_refresh_at:
-                refresh_live_table(page)
+            now = time.monotonic()
+            if now >= next_page_refresh_at:
+                _refresh_page_until_odds(page)
+                refreshed_matches = scrape_matches(page, log_odds_found=False)
+                live_watch.reconcile_after_refresh(refreshed_matches)
+                next_page_refresh_at = (
+                    time.monotonic() + config.PAGE_REFRESH_INTERVAL_SECONDS
+                )
+                next_refresh_at = time.monotonic() + random.randint(
+                    *config.LIVE_REFRESH_INTERVAL_SECONDS
+                )
+            elif now >= next_refresh_at:
+                page_was_reloaded = False
+                if not refresh_live_table(page):
+                    logger.warning(NO_MATCHES_RETRY_MESSAGE)
+                    page.wait_for_timeout(NO_MATCHES_RETRY_DELAY_MS)
+                    _refresh_page_until_odds(page)
+                    page_was_reloaded = True
                 refreshed_matches = scrape_matches(page, log_odds_found=False)
                 live_watch.reconcile_after_refresh(refreshed_matches)
                 next_refresh_at = time.monotonic() + random.randint(
                     *config.LIVE_REFRESH_INTERVAL_SECONDS
                 )
+                if page_was_reloaded:
+                    next_page_refresh_at = (
+                        time.monotonic() + config.PAGE_REFRESH_INTERVAL_SECONDS
+                    )
     except Exception:
         if not shutdown_requested.is_set():
             raise

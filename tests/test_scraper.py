@@ -59,6 +59,29 @@ class ScraperWaitTests(unittest.TestCase):
 
         self.logger.info.assert_not_called()
 
+    def test_wait_for_valid_match_odds_checks_until_available(self):
+        page = Mock()
+        page.evaluate.side_effect = [False, True]
+
+        with patch("scraper.time.monotonic", side_effect=[0, 1]):
+            result = scraper.wait_for_valid_match_odds(page, timeout_seconds=10)
+
+        self.assertTrue(result)
+        page.evaluate.assert_has_calls(
+            [call(scraper._MATCH_ODDS_READY_JS), call(scraper._MATCH_ODDS_READY_JS)]
+        )
+        page.wait_for_timeout.assert_called_once_with(1_000)
+
+    def test_wait_for_valid_match_odds_returns_false_when_timeout_expires(self):
+        page = Mock()
+        page.evaluate.return_value = False
+
+        with patch("scraper.time.monotonic", side_effect=[0, 10]):
+            result = scraper.wait_for_valid_match_odds(page, timeout_seconds=10)
+
+        self.assertFalse(result)
+        page.wait_for_timeout.assert_not_called()
+
 
 class ScraperCollectionTests(unittest.TestCase):
     def setUp(self):
@@ -462,6 +485,20 @@ class StartLiveWatchTests(unittest.TestCase):
             scraper.start_live_watch(self.page, self.on_update, [])
 
         self.page.evaluate.assert_not_called()
+
+    def test_reattach_live_watch_reinstalls_observer_without_exposing_callback(self):
+        scraper.reattach_live_watch(self.page)
+
+        self.page.expose_function.assert_not_called()
+        script, args = self.page.evaluate.call_args.args
+        self.assertEqual(
+            args,
+            [
+                f"__scraper_dom_changed_{id(self.page)}",
+                f"__scraper_live_observer_{id(self.page)}",
+            ],
+        )
+        self.assertIn("new MutationObserver", script)
 
 
 if __name__ == "__main__":
