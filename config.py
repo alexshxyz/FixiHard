@@ -1,14 +1,6 @@
-# Конфигурация сайта
+# Сайт и режим браузера
 SITE_URL = "https://www.goaloo.com/"
 HEADLESS = True
-
-# Интервал обновления таблицы матчей
-LIVE_REFRESH_INTERVAL_SECONDS = (100, 120)
-
-# Интервал полной перезагрузки страницы
-PAGE_REFRESH_INTERVAL_SECONDS = 1800
-
-# Куки для сайта
 SITE_COOKIES = [
 	{"name": "goaloo_SelCompany_V2", "value": "8", "domain": "www.goaloo.com", "path": "/"},
 	{"name": "Default_TimeZone", "value": "3", "domain": "www.goaloo.com", "path": "/"},
@@ -19,3 +11,43 @@ SITE_COOKIES = [
 	{"name": "YellowCheck", "value": "0", "domain": "www.goaloo.com", "path": "/"},
 	{"name": "orderby", "value": "time", "domain": "www.goaloo.com", "path": "/"},
 ]
+
+# Аргументы запуска Chromium
+BROWSER_ARGS = [
+	"--disable-gpu",
+	"--disable-dev-shm-usage",
+	"--disable-infobars",
+	"--no-sandbox",
+	"--disable-setuid-sandbox",
+	"--disable-notifications",
+	"--disable-background-networking",
+	"--disable-background-timer-throttling",
+	"--disable-renderer-backgrounding",
+	"--disable-extensions",
+	"--disable-sync",
+	"--metrics-recording-only",
+	"--mute-audio",
+]
+
+# Периодические обновления страницы и цикла бота (секунды)
+LIVE_REFRESH_INTERVAL_SECONDS = (100, 120)
+PAGE_REFRESH_INTERVAL_SECONDS = 1800
+MAIN_LOOP_WAIT_SECONDS = 1
+
+
+# Ожидания браузера и загрузки данных (секунды)
+PAGE_NAVIGATION_TIMEOUT_SECONDS = 30
+BROWSER_DEFAULT_TIMEOUT_SECONDS = 30
+TABLE_TIMEOUT_SECONDS = 10
+PAGE_TABLE_TIMEOUT_SECONDS = 20
+POST_REFRESH_WAIT_SECONDS = 1
+MATCH_DATA_TIMEOUT_SECONDS = 10
+MATCH_ODDS_TIMEOUT_SECONDS = 30
+VALID_MATCH_ODDS_TIMEOUT_SECONDS = 60
+ODDS_POLL_INTERVAL_SECONDS = 1
+
+# Повторные попытки обновлений (секунды и число попыток)
+NO_MATCHES_RETRY_SECONDS = 60
+REFRESH_RETRY_ATTEMPTS = 3
+LIVE_REFRESH_RETRY_SECONDS = 5
+PAGE_REFRESH_RETRY_SECONDS = 10

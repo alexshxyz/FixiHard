@@ -2,62 +2,12 @@ import json
 import time
 from pathlib import Path
 
+import config
+import scripts
 from logger import logger
 from live_watch import _LiveWatch
 from models import Match
 from timing import seconds_to_milliseconds, wait_for_seconds
-
-
-MATCH_DATA_TIMEOUT_SECONDS = 10
-MATCH_ODDS_TIMEOUT_SECONDS = 30
-ODDS_POLL_INTERVAL_SECONDS = 1
-
-
-# Проверяет, что глобальные коэффициенты Bet365 загружены и видимы.
-_GLOBAL_ODDS_READY_JS = r"""
-(() => {
-    const hasBet365Odds = Array.from(
-        document.querySelectorAll('td.oddstd[onclick]')
-    ).some((cell) => /,\s*["']8["']\s*,/.test(
-        cell.getAttribute('onclick') || ''
-    ));
-    const hasVisibleOdds = Array.from(
-        document.querySelectorAll('td.oddstd')
-    ).some((cell) => {
-        if (cell.offsetParent === null) return false;
-        const odds1 = cell.querySelector('p.odds1');
-        const odds3 = cell.querySelector('p.odds3');
-        return (odds1 && odds1.offsetParent !== null) ||
-            (odds3 && odds3.offsetParent !== null);
-    });
-    return hasBet365Odds && hasVisibleOdds;
-})()
-"""
-
-_MATCH_ODDS_READY_JS = r"""
-() => {
-    if (!__GLOBAL_ODDS_READY__) return false;
-
-    return Array.from(
-        document.querySelectorAll('#table_live tr.tds')
-    ).some((match) => {
-        const style = window.getComputedStyle(match);
-        if (!match.getClientRects().length ||
-            style.display === 'none' ||
-            style.visibility === 'hidden') {
-            return false;
-        }
-
-        const matchId = match.id.match(/^tr1_(.+)$/)?.[1] ||
-            match.getAttribute('matchid') ||
-            match.querySelector('[id^="favM_"]')?.getAttribute('mid');
-        const hasOddsElement = Boolean(
-            match.querySelector('p.odds1, p.odds3')
-        );
-        return Boolean(matchId && hasOddsElement);
-    });
-}
-""".replace("__GLOBAL_ODDS_READY__", _GLOBAL_ODDS_READY_JS)
 
 
 # Ждём появления строк матчей.
@@ -65,136 +15,44 @@ def wait_for_match_data(page):
     page.wait_for_selector(
         "#table_live tr.tds",
         state="attached",
-        timeout=seconds_to_milliseconds(MATCH_DATA_TIMEOUT_SECONDS),
+        timeout=seconds_to_milliseconds(config.MATCH_DATA_TIMEOUT_SECONDS),
     )
 
 
 # Ждём появления валидных строк с коэффициентами Bet365.
 def wait_for_match_odds(page, log_success=True):
     page.wait_for_function(
-        _MATCH_ODDS_READY_JS,
-        timeout=seconds_to_milliseconds(MATCH_ODDS_TIMEOUT_SECONDS),
+        scripts._MATCH_ODDS_READY_JS,
+        timeout=seconds_to_milliseconds(config.MATCH_ODDS_TIMEOUT_SECONDS),
     )
     if log_success:
         logger.info("Bet365 odds found")
 
 
-def wait_for_valid_match_odds(page, timeout_seconds=60):
+def wait_for_valid_match_odds(
+    page, timeout_seconds=config.VALID_MATCH_ODDS_TIMEOUT_SECONDS
+):
     deadline = time.monotonic() + timeout_seconds
     while True:
-        if page.evaluate(_MATCH_ODDS_READY_JS):
+        if page.evaluate(scripts._MATCH_ODDS_READY_JS):
             return True
 
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             return False
-        wait_for_seconds(page, min(ODDS_POLL_INTERVAL_SECONDS, remaining))
+        wait_for_seconds(
+            page, min(config.ODDS_POLL_INTERVAL_SECONDS, remaining)
+        )
 
 
 # Получаем названия лиг по их ID.
 def _league_names(page):
-    return page.evaluate(
-        """
-        () => Object.fromEntries(
-            Array.from(document.querySelectorAll('#table_live tr.Leaguestitle[sclassid]'))
-                .map((header) => {
-                    const leagueId = header.getAttribute('sclassid');
-                    const name = header.querySelector('.l1 .LGname, .l1 .fbsclass');
-                    return [leagueId, (name?.textContent || '').trim()];
-                })
-                .filter(([leagueId, name]) => leagueId && name)
-        )
-        """
-    )
-
-
-_MATCH_DATA_JS = r"""
-() => {
-    const cleanText = (value) => (value == null ? '' : String(value).replace(/\s+/g, ' ').trim());
-    const readText = (root, selector) => cleanText(root.querySelector(selector)?.textContent);
-    const isVisible = (element) => {
-        if (!element?.getClientRects().length) return false;
-        const style = window.getComputedStyle(element);
-        return style.display !== 'none' && style.visibility !== 'hidden';
-    };
-    const teamName = (node) => {
-        if (!node) return '';
-        const clone = node.cloneNode(true);
-        clone.querySelectorAll('.neutraity').forEach((item) => item.remove());
-        return cleanText(clone.textContent);
-    };
-    const globalReady = __GLOBAL_ODDS_READY__;
-
-    return Array.from(document.querySelectorAll('#table_live tr.tds'))
-        .map((match) => {
-            if (!isVisible(match)) return null;
-
-            const favorite = match.querySelector('[id^="favM_"]');
-            const rowMatchId = match.id.match(/^tr1_(.+)$/)?.[1];
-            const matchId = rowMatchId || match.getAttribute('matchid') || favorite?.getAttribute('mid') || '';
-            const leagueId = match.getAttribute('sclassid') || '';
-            const status = match.querySelector('td.status');
-            const matchTime =
-                readText(match, 'td.status span[id^="got_"]') ||
-                cleanText(status?.textContent);
-
-            const oddsCells = Array.from(match.querySelectorAll('td.oddstd'));
-            const overOdd = cleanText(oddsCells[0]?.querySelector('p.odds3')?.textContent);
-            const total = cleanText(oddsCells[1]?.querySelector('p.odds3')?.textContent);
-            const underOdd = cleanText(oddsCells[2]?.querySelector('p.odds3')?.textContent);
-            const ahHomeOdd = cleanText(oddsCells[0]?.querySelector('p.odds1')?.textContent);
-            const ahHandicap = cleanText(oddsCells[1]?.querySelector('p.odds1')?.textContent);
-            const ahAwayOdd = cleanText(oddsCells[2]?.querySelector('p.odds1')?.textContent);
-            const hasOddsElement = Boolean(
-                match.querySelector('p.odds1, p.odds3')
-            );
-            if (!globalReady || !matchId || !hasOddsElement) {
-                return null;
-            }
-
-            const homeCell = match.querySelector('td[id^="ht_"]');
-            const awayCell = match.querySelector('td[id^="gt_"]');
-            const redCardCount = (cell, selector) => {
-                const count = Number.parseInt(
-                    cleanText(cell?.querySelector(selector)?.textContent),
-                    10
-                );
-                return Number.isNaN(count) ? 0 : count;
-            };
-            const redcards =
-                redCardCount(homeCell, '[id^="redcard1_"] .redcard') +
-                redCardCount(awayCell, '[id^="redcard2_"] .redcard');
-            const scoreText = cleanText(
-                match.querySelector(
-                    'td.blue.handpoint[onclick*="soccerInPage.detail"] b'
-                )?.textContent
-            );
-            const score = scoreText.match(/(\d+)\s*-\s*(\d+)/);
-
-            return {
-                match_id: matchId,
-                league_id: leagueId,
-                match_time: matchTime,
-                over_odd: overOdd,
-                total: total,
-                under_odd: underOdd,
-                ah_home_odd: ahHomeOdd,
-                ah_away_odd: ahAwayOdd,
-                ah_handicap: ahHandicap,
-                home_team: teamName(homeCell?.querySelector('[id^="team1_"]')),
-                away_team: teamName(awayCell?.querySelector('[id^="team2_"]')),
-                score: score ? `${score[1]}-${score[2]}` : '',
-                redcards: redcards,
-            };
-        })
-        .filter((match) => match !== null);
-}
-""".replace("__GLOBAL_ODDS_READY__", _GLOBAL_ODDS_READY_JS)
+    return page.evaluate(scripts._LEAGUE_NAMES_JS)
 
 
 # Загружаем данные всех подходящих матчей из DOM.
 def _load_all_matches_data(page) -> list[Match]:
-    raw_matches = page.evaluate(_MATCH_DATA_JS)
+    raw_matches = page.evaluate(scripts._MATCH_DATA_JS)
     return [
         Match(
             match_id=match_data["match_id"],
@@ -323,51 +181,6 @@ def reattach_live_watch(page):
 
 def _install_live_watch_observer(page, callback_name, observer_key):
     page.evaluate(
-        """
-        ([callbackName, observerKey]) => {
-            const liveTable = document.querySelector('#table_live');
-            if (!liveTable) {
-                throw new Error('#table_live not found.');
-            }
-            const belongsToLiveTable = (node) => {
-                const element = node.nodeType === Node.ELEMENT_NODE
-                    ? node
-                    : node.parentElement;
-                return Boolean(
-                    element && element.closest('table#table_live')
-                );
-            };
-            const containsLiveTable = (node) => {
-                const element = node.nodeType === Node.ELEMENT_NODE
-                    ? node
-                    : node.parentElement;
-                return Boolean(
-                    element && (
-                        element.matches('table#table_live') ||
-                        element.querySelector('table#table_live')
-                    )
-                );
-            };
-
-            const observer = new MutationObserver((records) => {
-                const liveTableChanged = records.some((record) => {
-                    if (belongsToLiveTable(record.target)) return true;
-                    return [...record.addedNodes, ...record.removedNodes].some(
-                        (node) => belongsToLiveTable(node) ||
-                            containsLiveTable(node)
-                    );
-                });
-                if (liveTableChanged) window[callbackName]();
-            });
-            observer.observe(document.documentElement, {
-                childList: true,
-                subtree: true,
-                characterData: true,
-                attributes: true,
-                attributeFilter: ['class', 'style'],
-            });
-            window[observerKey] = observer;
-        }
-        """,
+        scripts._LIVE_WATCH_OBSERVER_JS,
         [callback_name, observer_key],
     )

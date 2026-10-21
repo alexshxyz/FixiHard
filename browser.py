@@ -1,33 +1,11 @@
 import config
 from logger import logger
 from timing import seconds_to_milliseconds, wait_for_seconds
-
-
-TABLE_TIMEOUT_SECONDS = 10
-PAGE_NAVIGATION_TIMEOUT_SECONDS = 30
-PAGE_TABLE_TIMEOUT_SECONDS = 20
-POST_REFRESH_WAIT_SECONDS = 1
-
-
 def launch_browser(p):
     # Запускает Chromium с настройками проекта.
     browser = p.chromium.launch(
         headless=config.HEADLESS,
-        args=[
-            "--disable-gpu",
-            "--disable-dev-shm-usage",
-            "--disable-infobars",
-            "--no-sandbox",
-            "--disable-setuid-sandbox",
-            "--disable-notifications",
-            "--disable-background-networking",
-            "--disable-background-timer-throttling",
-            "--disable-renderer-backgrounding",
-            "--disable-extensions",
-            "--disable-sync",
-            "--metrics-recording-only",
-            "--mute-audio",
-        ],
+        args=list(config.BROWSER_ARGS),
     )
     logger.info("Bot started successfully!")
 
@@ -40,10 +18,10 @@ def create_page(browser):
     context.add_cookies(config.SITE_COOKIES)
     page = context.new_page()
     page.set_default_navigation_timeout(
-        seconds_to_milliseconds(PAGE_NAVIGATION_TIMEOUT_SECONDS)
+        seconds_to_milliseconds(config.PAGE_NAVIGATION_TIMEOUT_SECONDS)
     )
     page.set_default_timeout(
-        seconds_to_milliseconds(PAGE_NAVIGATION_TIMEOUT_SECONDS)
+        seconds_to_milliseconds(config.BROWSER_DEFAULT_TIMEOUT_SECONDS)
     )
     logger.info("Cookies set")
 
@@ -65,9 +43,9 @@ def select_live_tab(page):
     page.wait_for_selector(
         "#table_live tr.tds",
         state="attached",
-        timeout=seconds_to_milliseconds(TABLE_TIMEOUT_SECONDS),
+        timeout=seconds_to_milliseconds(config.TABLE_TIMEOUT_SECONDS),
     )
-    wait_for_seconds(page, POST_REFRESH_WAIT_SECONDS)
+    wait_for_seconds(page, config.POST_REFRESH_WAIT_SECONDS)
 
 
 def refresh_live_table(page):
@@ -77,9 +55,9 @@ def refresh_live_table(page):
     logger.info("Refreshing live table..")
     live_tab.click()
     page.locator("table#table_live").wait_for(
-        timeout=seconds_to_milliseconds(TABLE_TIMEOUT_SECONDS)
+        timeout=seconds_to_milliseconds(config.TABLE_TIMEOUT_SECONDS)
     )
-    wait_for_seconds(page, POST_REFRESH_WAIT_SECONDS)
+    wait_for_seconds(page, config.POST_REFRESH_WAIT_SECONDS)
     from scraper import wait_for_valid_match_odds
 
     if not wait_for_valid_match_odds(page):
@@ -94,17 +72,19 @@ def refresh_page(page):
     try:
         page.reload(
             wait_until="domcontentloaded",
-            timeout=seconds_to_milliseconds(PAGE_NAVIGATION_TIMEOUT_SECONDS),
+            timeout=seconds_to_milliseconds(
+                config.PAGE_NAVIGATION_TIMEOUT_SECONDS
+            ),
         )
         page.locator("table#table_live").wait_for(
-            timeout=seconds_to_milliseconds(PAGE_TABLE_TIMEOUT_SECONDS)
+            timeout=seconds_to_milliseconds(config.PAGE_TABLE_TIMEOUT_SECONDS)
         )
 
         from scraper import wait_for_valid_match_odds
 
         if not wait_for_valid_match_odds(page):
             return False
-        wait_for_seconds(page, POST_REFRESH_WAIT_SECONDS)
+        wait_for_seconds(page, config.POST_REFRESH_WAIT_SECONDS)
         logger.info("Page refreshed")
         return True
     except Exception as error:

@@ -16,13 +16,6 @@ from scraper import (
 )
 from timing import wait_for_seconds
 
-NO_MATCHES_RETRY_SECONDS = 60
-REFRESH_RETRY_ATTEMPTS = 3
-LIVE_REFRESH_RETRY_SECONDS = 5
-PAGE_REFRESH_RETRY_SECONDS = 10
-MAIN_LOOP_WAIT_SECONDS = 1
-
-
 class ScriptRestartRequested(Exception):
     pass
 
@@ -30,23 +23,23 @@ class ScriptRestartRequested(Exception):
 def _wait_for_matches(page):
     logger.warning(
         "No matches found. Waiting %d seconds before reloading the page.",
-        NO_MATCHES_RETRY_SECONDS,
+        config.NO_MATCHES_RETRY_SECONDS,
     )
-    wait_for_seconds(page, NO_MATCHES_RETRY_SECONDS)
+    wait_for_seconds(page, config.NO_MATCHES_RETRY_SECONDS)
 
 
 def _refresh_live_table_with_retries(page):
-    for attempt in range(1, REFRESH_RETRY_ATTEMPTS + 1):
+    for attempt in range(1, config.REFRESH_RETRY_ATTEMPTS + 1):
         try:
             return refresh_live_table(page)
         except Exception:
             logger.exception(
                 "Live table refresh failed (attempt %d/%d)",
                 attempt,
-                REFRESH_RETRY_ATTEMPTS,
+                config.REFRESH_RETRY_ATTEMPTS,
             )
-            if attempt < REFRESH_RETRY_ATTEMPTS:
-                wait_for_seconds(page, LIVE_REFRESH_RETRY_SECONDS)
+            if attempt < config.REFRESH_RETRY_ATTEMPTS:
+                wait_for_seconds(page, config.LIVE_REFRESH_RETRY_SECONDS)
     return None
 
 
@@ -60,13 +53,13 @@ def _refresh_page_until_odds(page):
             logger.exception(
                 "Page refresh failed (attempt %d/%d)",
                 failed_attempts,
-                REFRESH_RETRY_ATTEMPTS,
+                config.REFRESH_RETRY_ATTEMPTS,
             )
-            if failed_attempts >= REFRESH_RETRY_ATTEMPTS:
+            if failed_attempts >= config.REFRESH_RETRY_ATTEMPTS:
                 raise ScriptRestartRequested(
                     "Page refresh failed after all retries"
                 )
-            wait_for_seconds(page, PAGE_REFRESH_RETRY_SECONDS)
+            wait_for_seconds(page, config.PAGE_REFRESH_RETRY_SECONDS)
             continue
 
         if refreshed:
@@ -149,7 +142,7 @@ def main():
             time.monotonic() + config.PAGE_REFRESH_INTERVAL_SECONDS
         )
         while not shutdown_requested.is_set():
-            wait_for_seconds(page, MAIN_LOOP_WAIT_SECONDS)
+            wait_for_seconds(page, config.MAIN_LOOP_WAIT_SECONDS)
             live_watch.process_pending()
             now = time.monotonic()
             if now >= next_page_refresh_at:

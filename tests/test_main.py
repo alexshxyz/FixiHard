@@ -154,8 +154,16 @@ class MainTests(unittest.TestCase):
         self.refresh_live_table.assert_called_once_with(self.page)
         self.page.wait_for_timeout.assert_has_calls(
             [
-                call(seconds_to_milliseconds(main.MAIN_LOOP_WAIT_SECONDS)),
-                call(seconds_to_milliseconds(main.NO_MATCHES_RETRY_SECONDS)),
+                call(
+                    seconds_to_milliseconds(
+                        main.config.MAIN_LOOP_WAIT_SECONDS
+                    )
+                ),
+                call(
+                    seconds_to_milliseconds(
+                        main.config.NO_MATCHES_RETRY_SECONDS
+                    )
+                ),
             ]
         )
         self.refresh_page.assert_called_once_with(self.page)
@@ -166,7 +174,7 @@ class MainTests(unittest.TestCase):
         self.live_watch.reconcile_after_refresh.assert_called_once_with(self.matches)
         self.logger.warning.assert_called_once_with(
             "No matches found. Waiting %d seconds before reloading the page.",
-            main.NO_MATCHES_RETRY_SECONDS,
+            main.config.NO_MATCHES_RETRY_SECONDS,
         )
 
     def test_page_refresh_retries_until_odds_are_found(self):
@@ -177,8 +185,16 @@ class MainTests(unittest.TestCase):
         self.assertEqual(self.refresh_page.call_count, 3)
         self.page.wait_for_timeout.assert_has_calls(
             [
-                call(seconds_to_milliseconds(main.NO_MATCHES_RETRY_SECONDS)),
-                call(seconds_to_milliseconds(main.NO_MATCHES_RETRY_SECONDS)),
+                call(
+                    seconds_to_milliseconds(
+                        main.config.NO_MATCHES_RETRY_SECONDS
+                    )
+                ),
+                call(
+                    seconds_to_milliseconds(
+                        main.config.NO_MATCHES_RETRY_SECONDS
+                    )
+                ),
             ]
         )
         self.assertEqual(
@@ -187,7 +203,7 @@ class MainTests(unittest.TestCase):
                 call(
                     "No matches found. Waiting %d seconds before reloading "
                     "the page.",
-                    main.NO_MATCHES_RETRY_SECONDS,
+                    main.config.NO_MATCHES_RETRY_SECONDS,
                 )
             ]
             * 2,
@@ -202,11 +218,15 @@ class MainTests(unittest.TestCase):
         self.assertIsNone(result)
         self.assertEqual(
             self.refresh_live_table.call_count,
-            main.REFRESH_RETRY_ATTEMPTS,
+            main.config.REFRESH_RETRY_ATTEMPTS,
         )
         self.page.wait_for_timeout.assert_has_calls(
             [
-                call(seconds_to_milliseconds(main.LIVE_REFRESH_RETRY_SECONDS))
+                call(
+                    seconds_to_milliseconds(
+                        main.config.LIVE_REFRESH_RETRY_SECONDS
+                    )
+                )
             ]
             * 2
         )
@@ -231,13 +251,25 @@ class MainTests(unittest.TestCase):
 
         self.assertEqual(
             self.refresh_live_table.call_count,
-            main.REFRESH_RETRY_ATTEMPTS,
+            main.config.REFRESH_RETRY_ATTEMPTS,
         )
         self.page.wait_for_timeout.assert_has_calls(
             [
-                call(seconds_to_milliseconds(main.MAIN_LOOP_WAIT_SECONDS)),
-                call(seconds_to_milliseconds(main.LIVE_REFRESH_RETRY_SECONDS)),
-                call(seconds_to_milliseconds(main.LIVE_REFRESH_RETRY_SECONDS)),
+                call(
+                    seconds_to_milliseconds(
+                        main.config.MAIN_LOOP_WAIT_SECONDS
+                    )
+                ),
+                call(
+                    seconds_to_milliseconds(
+                        main.config.LIVE_REFRESH_RETRY_SECONDS
+                    )
+                ),
+                call(
+                    seconds_to_milliseconds(
+                        main.config.LIVE_REFRESH_RETRY_SECONDS
+                    )
+                ),
             ]
         )
         self.refresh_page.assert_called_once_with(self.page)
@@ -254,11 +286,15 @@ class MainTests(unittest.TestCase):
 
         self.assertEqual(
             self.refresh_page.call_count,
-            main.REFRESH_RETRY_ATTEMPTS,
+            main.config.REFRESH_RETRY_ATTEMPTS,
         )
         self.page.wait_for_timeout.assert_has_calls(
             [
-                call(seconds_to_milliseconds(main.PAGE_REFRESH_RETRY_SECONDS))
+                call(
+                    seconds_to_milliseconds(
+                        main.config.PAGE_REFRESH_RETRY_SECONDS
+                    )
+                )
             ]
             * 2
         )

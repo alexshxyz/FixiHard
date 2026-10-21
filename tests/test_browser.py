@@ -65,10 +65,14 @@ class BrowserFunctionTests(unittest.TestCase):
         context.add_cookies.assert_called_once_with(cookies)
         context.new_page.assert_called_once_with()
         page.set_default_navigation_timeout.assert_called_once_with(
-            seconds_to_milliseconds(browser.PAGE_NAVIGATION_TIMEOUT_SECONDS)
+            seconds_to_milliseconds(
+                browser.config.PAGE_NAVIGATION_TIMEOUT_SECONDS
+            )
         )
         page.set_default_timeout.assert_called_once_with(
-            seconds_to_milliseconds(browser.PAGE_NAVIGATION_TIMEOUT_SECONDS)
+            seconds_to_milliseconds(
+                browser.config.BROWSER_DEFAULT_TIMEOUT_SECONDS
+            )
         )
         self.logger.info.assert_called_once_with("Cookies set")
 
@@ -128,10 +132,12 @@ class BrowserFunctionTests(unittest.TestCase):
         page.wait_for_selector.assert_called_once_with(
             "#table_live tr.tds",
             state="attached",
-            timeout=seconds_to_milliseconds(browser.TABLE_TIMEOUT_SECONDS),
+            timeout=seconds_to_milliseconds(
+                browser.config.TABLE_TIMEOUT_SECONDS
+            ),
         )
         page.wait_for_timeout.assert_called_once_with(
-            seconds_to_milliseconds(browser.POST_REFRESH_WAIT_SECONDS)
+            seconds_to_milliseconds(browser.config.POST_REFRESH_WAIT_SECONDS)
         )
 
     def test_select_live_tab_does_not_click_when_tab_is_not_visible(self):
@@ -173,14 +179,14 @@ class BrowserFunctionTests(unittest.TestCase):
                 call(state="visible"),
                 call(
                     timeout=seconds_to_milliseconds(
-                        browser.TABLE_TIMEOUT_SECONDS
+                        browser.config.TABLE_TIMEOUT_SECONDS
                     )
                 ),
             ]
         )
         page.locator.return_value.click.assert_called_once_with()
         page.wait_for_timeout.assert_called_once_with(
-            seconds_to_milliseconds(browser.POST_REFRESH_WAIT_SECONDS)
+            seconds_to_milliseconds(browser.config.POST_REFRESH_WAIT_SECONDS)
         )
         wait_odds.assert_called_once_with(page)
         self.logger.info.assert_has_calls(
@@ -216,16 +222,18 @@ class BrowserFunctionTests(unittest.TestCase):
         page.reload.assert_called_once_with(
             wait_until="domcontentloaded",
             timeout=seconds_to_milliseconds(
-                browser.PAGE_NAVIGATION_TIMEOUT_SECONDS
+                browser.config.PAGE_NAVIGATION_TIMEOUT_SECONDS
             ),
         )
         page.locator.assert_called_once_with("table#table_live")
         page.locator.return_value.wait_for.assert_called_once_with(
-            timeout=seconds_to_milliseconds(browser.PAGE_TABLE_TIMEOUT_SECONDS)
+            timeout=seconds_to_milliseconds(
+                browser.config.PAGE_TABLE_TIMEOUT_SECONDS
+            )
         )
         wait_odds.assert_called_once_with(page)
         page.wait_for_timeout.assert_called_once_with(
-            seconds_to_milliseconds(browser.POST_REFRESH_WAIT_SECONDS)
+            seconds_to_milliseconds(browser.config.POST_REFRESH_WAIT_SECONDS)
         )
         self.logger.info.assert_any_call("Page refreshed")
 
@@ -239,7 +247,7 @@ class BrowserFunctionTests(unittest.TestCase):
         page.reload.assert_called_once_with(
             wait_until="domcontentloaded",
             timeout=seconds_to_milliseconds(
-                browser.PAGE_NAVIGATION_TIMEOUT_SECONDS
+                browser.config.PAGE_NAVIGATION_TIMEOUT_SECONDS
             ),
         )
         page.wait_for_timeout.assert_not_called()
