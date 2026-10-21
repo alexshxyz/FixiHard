@@ -55,6 +55,7 @@ class MainTests(unittest.TestCase):
             self.monotonic,
             self.signal_call,
         ) = self.mocks
+        self.refresh_live_table.return_value = True
 
     def _signal(self, signum, handler):
         if handler is self.previous_handlers[signum]:
@@ -178,6 +179,83 @@ class MainTests(unittest.TestCase):
             [call(main.NO_MATCHES_RETRY_MESSAGE)] * 2,
         )
         self.reattach_live_watch.assert_called_once_with(self.page)
+
+    def test_live_refresh_retries_errors_three_times_with_five_second_delays(self):
+        self.refresh_live_table.side_effect = RuntimeError("live refresh failed")
+
+        result = main._refresh_live_table_with_retries(self.page)
+
+        self.assertIsNone(result)
+        self.assertEqual(
+            self.refresh_live_table.call_count,
+            main.LIVE_REFRESH_ATTEMPTS,
+        )
+        self.page.wait_for_timeout.assert_has_calls(
+            [call(main.LIVE_REFRESH_RETRY_DELAY_MS)] * 2
+        )
+
+    def test_live_refresh_stops_retrying_when_odds_are_missing(self):
+        self.refresh_live_table.return_value = False
+
+        result = main._refresh_live_table_with_retries(self.page)
+
+        self.assertFalse(result)
+        self.refresh_live_table.assert_called_once_with(self.page)
+        self.page.wait_for_timeout.assert_not_called()
+
+    def test_main_falls_back_to_page_refresh_after_live_errors(self):
+        self.page.wait_for_timeout.side_effect = self._shutdown_after_second_wait
+        self.monotonic.side_effect = [0, 0, 10, 10, 20]
+        self.refresh_live_table.side_effect = RuntimeError("live refresh failed")
+        self.refresh_page.return_value = True
+
+        with patch("main.config.PAGE_REFRESH_INTERVAL_SECONDS", 1_000):
+            main.main()
+
+        self.assertEqual(
+            self.refresh_live_table.call_count,
+            main.LIVE_REFRESH_ATTEMPTS,
+        )
+        self.page.wait_for_timeout.assert_has_calls(
+            [
+                call(1_000),
+                call(main.LIVE_REFRESH_RETRY_DELAY_MS),
+                call(main.LIVE_REFRESH_RETRY_DELAY_MS),
+            ]
+        )
+        self.refresh_page.assert_called_once_with(self.page)
+        self.reattach_live_watch.assert_called_once_with(self.page)
+        self.scrape_matches.assert_has_calls(
+            [call(self.page), call(self.page, log_odds_found=False)]
+        )
+
+    def test_page_refresh_errors_raise_restart_after_three_attempts(self):
+        self.refresh_page.side_effect = RuntimeError("page refresh failed")
+
+        with self.assertRaises(main.ScriptRestartRequested):
+            main._refresh_page_until_odds(self.page)
+
+        self.assertEqual(
+            self.refresh_page.call_count,
+            main.PAGE_REFRESH_ATTEMPTS,
+        )
+        self.page.wait_for_timeout.assert_has_calls(
+            [call(main.PAGE_REFRESH_RETRY_DELAY_MS)] * 2
+        )
+        self.reattach_live_watch.assert_not_called()
+
+    def test_run_forever_restarts_main_after_retry_exhaustion(self):
+        with patch(
+            "main.main",
+            side_effect=[main.ScriptRestartRequested("restart"), None],
+        ) as run_main:
+            main.run_forever()
+
+        self.assertEqual(run_main.call_count, 2)
+        self.logger.error.assert_called_once_with(
+            "%s. Restarting bot from a clean state.",
+            unittest.mock.ANY,
+        )
 
     def test_main_reraises_operation_error_without_shutdown_and_cleans_up(self):
         self.page.wait_for_timeout.side_effect = RuntimeError("page failed")
