@@ -8,6 +8,7 @@ from analyzer import MatchAnalyzer
 import config
 from browser import refresh_live_table, refresh_page, start_browser
 from logger import logger
+from notifier import TelegramNotifier
 from scraper import (
     _log_matches_updated,
     reattach_live_watch,
@@ -124,9 +125,10 @@ def main():
         for signum in (signal.SIGINT, signal.SIGTERM)
     }
     try:
+        notifier = TelegramNotifier.from_environment()
         playwright, browser, _, page = start_browser()
         initial_matches = scrape_matches(page)
-        analyzer = MatchAnalyzer()
+        analyzer = MatchAnalyzer(notifier=notifier)
         analyzer.initialize(initial_matches)
 
         live_watch = start_live_watch(
