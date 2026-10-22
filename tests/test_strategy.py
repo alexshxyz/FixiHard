@@ -1,8 +1,13 @@
 import unittest
 from datetime import datetime, timedelta
+from decimal import Decimal
 from unittest.mock import patch
 
-from strategy import find_ah_signal, find_over_signal
+from strategy import (
+    _normalize_handicap,
+    find_ah_signal,
+    find_over_signal,
+)
 
 
 class OverStrategyTests(unittest.TestCase):
@@ -322,6 +327,25 @@ class AHStrategyTests(unittest.TestCase):
         signal = find_ah_signal("match-1", [current, middle, anchor])
 
         self.assertIsNotNone(signal)
+        self.assertEqual(signal["team"], "Away")
+
+    def test_normalizes_shorthand_negative_handicaps(self):
+        self.assertEqual(_normalize_handicap("-1.5/2"), Decimal("-1.75"))
+        self.assertEqual(_normalize_handicap("0/-0.5"), Decimal("-0.25"))
+        self.assertEqual(_normalize_handicap("-1.5/-2"), Decimal("-1.75"))
+
+    def test_shorthand_negative_handicap_movement_triggers_signal(self):
+        start = datetime(2026, 10, 22, 12, 0)
+        history = [
+            self._entry(start, "-1.5"),
+            self._entry(start + timedelta(minutes=1), "-1.5/2"),
+            self._entry(start + timedelta(minutes=2), "-2"),
+        ]
+
+        signal = find_ah_signal("match-1", history)
+
+        self.assertIs(signal["current"], history[0])
+        self.assertIs(signal["anchor"], history[-1])
         self.assertEqual(signal["team"], "Away")
 
     def test_rejects_anchor_when_match_time_contains_excluded_value(self):

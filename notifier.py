@@ -7,14 +7,12 @@ from urllib.parse import quote
 import requests
 from dotenv import load_dotenv
 
+import config
 from logger import logger
 
 
 class TelegramNotifier:
-	MAX_ATTEMPTS = 3
-	RETRY_DELAY_SECONDS = 3
-	REQUEST_TIMEOUT_SECONDS = 15
-
+	# Проверяет и сохраняет параметры Telegram-уведомлений.
 	def __init__(
 		self,
 		bot_token: str,
@@ -30,6 +28,7 @@ class TelegramNotifier:
 		self.channel_id = channel_id.strip()
 		self.proxy_url = proxy_url
 
+	# Создаёт notifier из переменных окружения.
 	@classmethod
 	def from_environment(cls) -> "TelegramNotifier":
 		load_dotenv(Path(__file__).with_name(".env"))
@@ -68,6 +67,7 @@ class TelegramNotifier:
 
 		return cls(bot_token, channel_id, proxy_url)
 
+	# Формирует HTML-сообщение по сигналу стратегии.
 	def format_signal(self, strategy: str, signal: dict) -> str:
 		anchor = signal.get("anchor")
 		if not isinstance(anchor, dict):
@@ -120,6 +120,7 @@ class TelegramNotifier:
 
 		return f"{header}\n{match_line}\n\n{outcome}"
 
+	# Отправляет уведомление Telegram с повторными попытками.
 	def send_signal(self, strategy: str, signal: dict) -> bool:
 		message = self.format_signal(strategy, signal)
 		url = (
@@ -132,7 +133,7 @@ class TelegramNotifier:
 			else None
 		)
 
-		for attempt in range(1, self.MAX_ATTEMPTS + 1):
+		for attempt in range(1, config.TELEGRAM_MAX_ATTEMPTS + 1):
 			try:
 				response = requests.post(
 					url,
@@ -143,7 +144,7 @@ class TelegramNotifier:
 						"disable_web_page_preview": "true",
 					},
 					proxies=proxies,
-					timeout=self.REQUEST_TIMEOUT_SECONDS,
+					timeout=config.TELEGRAM_REQUEST_TIMEOUT_SECONDS,
 				)
 				response.raise_for_status()
 				result = response.json()
@@ -156,18 +157,19 @@ class TelegramNotifier:
 					raise RuntimeError(description)
 				return True
 			except (requests.RequestException, ValueError, RuntimeError) as error:
-				if attempt < self.MAX_ATTEMPTS:
-					time.sleep(self.RETRY_DELAY_SECONDS)
+				if attempt < config.TELEGRAM_MAX_ATTEMPTS:
+					time.sleep(config.TELEGRAM_RETRY_DELAY_SECONDS)
 				else:
 					logger.error(
 						"Telegram notification failed after %d attempts "
 						"(%s): %s",
-						self.MAX_ATTEMPTS,
+						config.TELEGRAM_MAX_ATTEMPTS,
 						type(error).__name__,
 						self._sanitize_error(str(error)),
 					)
 		return False
 
+	# Удаляет секреты из текста ошибки перед логированием.
 	def _sanitize_error(self, message: str) -> str:
 		for secret in (
 			self.bot_token,

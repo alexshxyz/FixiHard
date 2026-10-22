@@ -11,6 +11,7 @@ if not logger.handlers:
     log_format = "%(asctime)s %(levelname)s: %(message)s"
 
     class ConsoleFormatter(logging.Formatter):
+        # Форматирует консольный лог без повторяющихся деталей.
         def format(self, record):
             console_record = copy.copy(record)
             message = console_record.getMessage()

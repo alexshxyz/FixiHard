@@ -10,6 +10,7 @@ from strategy import find_ah_signal, find_over_signal
 
 
 class MatchAnalyzer:
+	# Настраивает хранение истории и уже отправленных сигналов.
 	def __init__(
 		self,
 		history_path: str | Path | None = None,
@@ -38,6 +39,7 @@ class MatchAnalyzer:
 		self.notifier = notifier
 		self.signals = self._read_signals()
 
+	# Создаёт историю и проверяет начальные данные матчей.
 	def initialize(self, matches: list[Match]) -> None:
 		self.histories.clear()
 		self.copy_histories.clear()
@@ -49,6 +51,7 @@ class MatchAnalyzer:
 			if match.match_id:
 				self._analyze_match(match.match_id)
 
+	# Добавляет обновления матчей и анализирует изменившиеся записи.
 	def record_updates(self, matches: list[Match]) -> None:
 		changed_match_ids = set()
 		for match in matches:
@@ -59,6 +62,7 @@ class MatchAnalyzer:
 			for match_id in changed_match_ids:
 				self._analyze_match(match_id)
 
+	# Удаляет завершившиеся матчи из текущих историй.
 	def remove_matches(self, match_ids: list[str]) -> None:
 		changed = False
 		for match_id in match_ids:
@@ -69,6 +73,7 @@ class MatchAnalyzer:
 		if changed:
 			self._write_history()
 
+	# Добавляет снимок матча в основную и фильтрованную историю.
 	def _append_match(self, match: Match) -> bool:
 		if not match.match_id:
 			return False
@@ -126,10 +131,12 @@ class MatchAnalyzer:
 		)
 		return True
 
+	# Записывает обе версии истории на диск.
 	def _write_history(self) -> None:
 		self._write_history_file(self.history_path, self.histories)
 		self._write_history_file(self.history_copy_path, self.copy_histories)
 
+	# Сериализует историю матчей в JSON-файл.
 	@staticmethod
 	def _write_history_file(path: Path, histories: dict[str, list[dict]]) -> None:
 		document = {
@@ -143,6 +150,7 @@ class MatchAnalyzer:
 			encoding="utf-8",
 		)
 
+	# Загружает и проверяет ранее сохранённые сигналы.
 	def _read_signals(self) -> dict[str, list[str]]:
 		if not self.signals_path.exists():
 			return {"over": [], "ah": []}
@@ -181,6 +189,7 @@ class MatchAnalyzer:
 		signals.setdefault("ah", [])
 		return signals
 
+	# Сохраняет актуальный список сигналов в JSON-файл.
 	def _write_signals(self, signals: dict[str, list[str]]) -> None:
 		document = {"over": signals["over"], "ah": signals["ah"]}
 		self.signals_path.write_text(
@@ -188,6 +197,7 @@ class MatchAnalyzer:
 			encoding="utf-8",
 		)
 
+	# Ищет новые сигналы для матча и отправляет уведомления.
 	def _analyze_match(self, match_id: str) -> None:
 		history = self.copy_histories[match_id]
 		if not self._has_signal("over", match_id):
@@ -223,12 +233,14 @@ class MatchAnalyzer:
 				logger.info(ah_signal["message"])
 				self._notify("ah", ah_signal)
 
+	# Проверяет, был ли уже сохранён сигнал для этого матча.
 	def _has_signal(self, strategy: str, match_id: str) -> bool:
 		return any(
 			message.startswith(f"{match_id} ")
 			for message in self.signals[strategy]
 		)
 
+	# Добавляет сигнал в файл и обновляет состояние анализатора.
 	def _save_signal(self, strategy: str, message: str) -> None:
 		updated_signals = {
 			**self.signals,
@@ -237,6 +249,7 @@ class MatchAnalyzer:
 		self._write_signals(updated_signals)
 		self.signals = updated_signals
 
+	# Отправляет сигнал через настроенный notifier.
 	def _notify(self, strategy: str, signal: dict) -> None:
 		if self.notifier is not None:
 			self.notifier.send_signal(strategy, signal)

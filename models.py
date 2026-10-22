@@ -23,17 +23,18 @@ class Match:
     ah_away_odd: str = ""
     ah_handicap: str = ""
 
+    # Формирует подпись команд матча или пустую строку.
     @property
     def teams(self) -> str:
-        # Возвращает строку вида 'Home - Away'.
         if self.home_team and self.away_team:
             return f"{self.home_team} - {self.away_team}"
         return ""
 
+    # Преобразует весь объект матча в словарь.
     def to_dict(self) -> dict:
-        # Преобразует объект в словарь для совместимости с логированием или сериализацией.
         return asdict(self)
 
+    # Собирает словарь с основными данными матча.
     def to_match_data_dict(self) -> dict[str, str | int]:
         return {
             "match_id": self.match_id,
@@ -46,6 +47,7 @@ class Match:
             "redcards": self.redcards,
         }
 
+    # Собирает словарь с линиями и коэффициентами рынков.
     def to_market_data_dict(self) -> dict[str, dict[str, str]]:
         return {
             "over": {
@@ -60,9 +62,9 @@ class Match:
             },
         }
 
+    # Создаёт объект матча из словаря данных.
     @classmethod
     def from_dict(cls, data: dict) -> "Match":
-        # Создаёт объект из словаря с данными матча.
         return cls(
             match_id=str(data.get("match_id", "")),
             league_id=str(data.get("league_id", "")),
@@ -94,5 +96,6 @@ class MatchDelta:
     under_odd: str = ""
     score: str = ""
 
+    # Преобразует обновление матча в словарь.
     def to_dict(self) -> dict:
         return asdict(self)

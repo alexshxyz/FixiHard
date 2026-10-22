@@ -1,8 +1,10 @@
 import config
 from logger import logger
 from timing import seconds_to_milliseconds, wait_for_seconds
+
+
+# Запускает Chromium с настройками проекта.
 def launch_browser(p):
-    # Запускает Chromium с настройками проекта.
     browser = p.chromium.launch(
         headless=config.HEADLESS,
         args=list(config.BROWSER_ARGS),
@@ -12,8 +14,8 @@ def launch_browser(p):
     return browser
 
 
+# Создаёт контекст и страницу с таймаутами проекта.
 def create_page(browser):
-    # Создаёт контекст браузера и страницу с таймаутами проекта.
     context = browser.new_context()
     context.add_cookies(config.SITE_COOKIES)
     page = context.new_page()
@@ -28,15 +30,15 @@ def create_page(browser):
     return context, page
 
 
+# Открывает стартовую страницу сайта.
 def open_site(page):
-    # Открывает сайт.
     logger.info("Loading site..")
     page.goto(config.SITE_URL, wait_until="domcontentloaded")
     logger.info("OK")
 
 
+# Переключает сайт на вкладку Live и ждёт таблицу.
 def select_live_tab(page):
-    # Выбирает Live и ждёт загрузки таблицы матчей.
     live_tab = page.locator("#li_FilterLive")
     live_tab.wait_for(state="visible")
     live_tab.click()
@@ -48,8 +50,8 @@ def select_live_tab(page):
     wait_for_seconds(page, config.POST_REFRESH_WAIT_SECONDS)
 
 
+# Обновляет live-таблицу без полной перезагрузки страницы.
 def refresh_live_table(page):
-    # Обновляет таблицу матчей нажатием на вкладку Live без перезагрузки страницы.
     live_tab = page.locator("#li_FilterLive")
     live_tab.wait_for(state="visible")
     logger.info("Refreshing live table..")
@@ -66,8 +68,8 @@ def refresh_live_table(page):
     return True
 
 
+# Перезагружает страницу и проверяет готовность live-данных.
 def refresh_page(page):
-    # Полностью перезагружает страницу и ждёт готовности данных Live.
     logger.info("Refreshing page...")
     try:
         page.reload(
@@ -92,8 +94,8 @@ def refresh_page(page):
         raise
 
 
+# Запускает Playwright, браузер и начальную страницу.
 def start_browser():
-    # Запускает Playwright и возвращает подготовленные ресурсы браузера.
     from playwright.sync_api import sync_playwright
 
     playwright = sync_playwright().start()

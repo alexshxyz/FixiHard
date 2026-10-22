@@ -3,6 +3,7 @@ from unittest.mock import Mock, call, patch
 
 import requests
 
+import config
 from notifier import TelegramNotifier
 
 
@@ -88,6 +89,10 @@ class TelegramNotifierTests(unittest.TestCase):
         )
         self.assertEqual(
             post_mock.call_args.kwargs["data"]["parse_mode"], "HTML"
+        )
+        self.assertEqual(
+            post_mock.call_args.kwargs["timeout"],
+            config.TELEGRAM_REQUEST_TIMEOUT_SECONDS,
         )
 
     @patch("notifier.time.sleep")

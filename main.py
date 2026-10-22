@@ -18,9 +18,11 @@ from scraper import (
 from timing import wait_for_seconds
 
 class ScriptRestartRequested(Exception):
+    # Обозначает необходимость перезапустить главный цикл бота.
     pass
 
 
+# Ожидает появления матчей перед повторной загрузкой.
 def _wait_for_matches(page):
     logger.warning(
         "No matches found. Waiting %d seconds before reloading the page.",
@@ -29,6 +31,7 @@ def _wait_for_matches(page):
     wait_for_seconds(page, config.NO_MATCHES_RETRY_SECONDS)
 
 
+# Повторяет обновление live-таблицы при ошибках.
 def _refresh_live_table_with_retries(page):
     for attempt in range(1, config.REFRESH_RETRY_ATTEMPTS + 1):
         try:
@@ -44,6 +47,7 @@ def _refresh_live_table_with_retries(page):
     return None
 
 
+# Перезагружает страницу до появления актуальных коэффициентов.
 def _refresh_page_until_odds(page):
     failed_attempts = 0
     while True:
@@ -71,21 +75,25 @@ def _refresh_page_until_odds(page):
         _wait_for_matches(page)
 
 
+# Помечает запрос на штатное завершение бота.
 def _request_shutdown(shutdown_requested, _signum, _frame):
     shutdown_requested.set()
 
 
+# Записывает обновления матчей и логирует их.
 def _record_match_updates(analyzer, matches):
     analyzer.record_updates(matches)
     _log_matches_updated(matches)
 
 
+# Обновляет страницу и сверяет список матчей.
 def _refresh_page_and_reconcile(page, live_watch):
     _refresh_page_until_odds(page)
     refreshed_matches = scrape_matches(page, log_odds_found=False)
     live_watch.reconcile_after_refresh(refreshed_matches)
 
 
+# Обновляет таблицу либо страницу и сверяет матчи.
 def _refresh_live_table_and_reconcile(page, live_watch):
     live_refresh_result = _refresh_live_table_with_retries(page)
     page_was_reloaded = live_refresh_result is not True
@@ -104,6 +112,7 @@ def _refresh_live_table_and_reconcile(page, live_watch):
     return page_was_reloaded
 
 
+# Перезапускает основной цикл после запроса на восстановление.
 def run_forever():
     while True:
         try:
@@ -113,6 +122,7 @@ def run_forever():
             logger.error("%s. Restarting bot from a clean state.", error)
 
 
+# Инициализирует сервисы и выполняет основной цикл бота.
 def main():
     playwright = None
     browser = None

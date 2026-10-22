@@ -29,6 +29,7 @@ def wait_for_match_odds(page, log_success=True):
         logger.info("Bet365 odds found")
 
 
+# Проверяет готовность коэффициентов до истечения таймаута.
 def wait_for_valid_match_odds(
     page, timeout_seconds=config.VALID_MATCH_ODDS_TIMEOUT_SECONDS
 ):
@@ -173,12 +174,14 @@ def start_live_watch(
     return live_watch
 
 
+# Повторно устанавливает наблюдатель после перезагрузки страницы.
 def reattach_live_watch(page):
     callback_name = f"__scraper_dom_changed_{id(page)}"
     observer_key = f"__scraper_live_observer_{id(page)}"
     _install_live_watch_observer(page, callback_name, observer_key)
 
 
+# Регистрирует в браузере наблюдатель за изменениями live-таблицы.
 def _install_live_watch_observer(page, callback_name, observer_key):
     page.evaluate(
         scripts._LIVE_WATCH_OBSERVER_JS,

@@ -5,7 +5,8 @@ from decimal import Decimal, InvalidOperation
 import config
 
 
-def _normalize_total(value: object) -> Decimal | None:
+# Разбирает одно- или двухзначное представление линии.
+def _line_components(value: object) -> list[Decimal] | None:
 	if value is None:
 		return None
 
@@ -18,11 +19,28 @@ def _normalize_total(value: object) -> Decimal | None:
 	except InvalidOperation:
 		return None
 
-	if not all(part.is_finite() for part in values):
+	return values if all(part.is_finite() for part in values) else None
+
+
+# Усредняет компоненты линии тотала с исходными знаками.
+def _normalize_total(value: object) -> Decimal | None:
+	values = _line_components(value)
+	if values is None:
 		return None
 	return sum(values, Decimal(0)) / len(values)
 
 
+# Усредняет модуль форы и возвращает её отрицательный знак при наличии.
+def _normalize_handicap(value: object) -> Decimal | None:
+	values = _line_components(value)
+	if values is None:
+		return None
+
+	handicap = sum((abs(part) for part in values), Decimal(0)) / len(values)
+	return -handicap if any(part.is_signed() for part in values) else handicap
+
+
+# Читает время наблюдения из записи истории.
 def _entry_time(entry: dict) -> datetime | None:
 	value = entry.get("observed_at")
 	if not isinstance(value, str):
@@ -34,6 +52,7 @@ def _entry_time(entry: dict) -> datetime | None:
 		return None
 
 
+# Возвращает числовое значение рынка, если рынок открыт.
 def _market_value(
 	entry: dict,
 	market_name: str,
@@ -54,6 +73,7 @@ def _market_value(
 	return _normalize_total(market.get(value_name))
 
 
+# Возвращает линию тотала из записи матча.
 def _market_total(entry: dict) -> Decimal | None:
 	return _market_value(
 		entry,
@@ -63,15 +83,23 @@ def _market_total(entry: dict) -> Decimal | None:
 	)
 
 
+# Возвращает фору из записи матча.
 def _market_handicap(entry: dict) -> Decimal | None:
-	return _market_value(
-		entry,
-		"ah",
-		"handicap",
-		("home_odd", "away_odd"),
-	)
+	market_data = entry.get("market_data")
+	if not isinstance(market_data, dict):
+		return None
+	market = market_data.get("ah")
+	if not isinstance(market, dict):
+		return None
+
+	for key in ("handicap", "home_odd", "away_odd"):
+		if str(market.get(key, "")).strip().casefold() == "closed":
+			return None
+
+	return _normalize_handicap(market.get("handicap"))
 
 
+# Возвращает счёт матча из записи истории.
 def _match_score(entry: dict) -> str:
 	match_data = entry.get("match_data")
 	if not isinstance(match_data, dict):
@@ -80,6 +108,7 @@ def _match_score(entry: dict) -> str:
 	return score.strip() if isinstance(score, str) else ""
 
 
+# Проверяет, исключено ли время матча для якорной записи.
 def _has_excluded_anchor_match_time(entry: dict) -> bool:
 	match_data = entry.get("match_data")
 	if not isinstance(match_data, dict):
@@ -94,6 +123,7 @@ def _has_excluded_anchor_match_time(entry: dict) -> bool:
 	)
 
 
+# Возвращает число удалений из данных матча.
 def _redcard_count(entry: dict) -> Decimal | None:
 	match_data = entry.get("match_data")
 	if not isinstance(match_data, dict):
@@ -109,6 +139,36 @@ def _redcard_count(entry: dict) -> Decimal | None:
 	return count if count.is_finite() else None
 
 
+# Проверяет время матча и отсутствие красной карточки в окне якоря.
+def _is_valid_anchor(
+	history: list[dict],
+	anchor: dict,
+	anchor_time: datetime,
+) -> bool:
+	if _has_excluded_anchor_match_time(anchor):
+		return False
+
+	redcard_cutoff = anchor_time - timedelta(
+		minutes=config.REDCARD_WINDOW_MINUTES
+	)
+	for entry in history:
+		if not isinstance(entry, dict):
+			continue
+		observed_at = _entry_time(entry)
+		if observed_at is None:
+			continue
+		if not redcard_cutoff <= observed_at <= anchor_time:
+			continue
+		redcards = _redcard_count(entry)
+		if (
+			redcards is not None
+			and redcards > config.REDCARD_THRESHOLD
+		):
+			return False
+	return True
+
+
+# Ищет накопленное движение линии до якорного значения.
 def _find_cumulative_movement(
 	history: list[dict],
 	anchor_index: int,
@@ -153,6 +213,7 @@ def _find_cumulative_movement(
 	return None
 
 
+# Находит сигнал при росте линии тотала.
 def find_over_signal(match_id: str, history: list[dict]) -> dict | None:
 	anchor_index = None
 	anchor_time = None
@@ -175,26 +236,8 @@ def find_over_signal(match_id: str, history: list[dict]) -> dict | None:
 		return None
 
 	anchor = history[anchor_index]
-	if _has_excluded_anchor_match_time(anchor):
+	if not _is_valid_anchor(history, anchor, anchor_time):
 		return None
-
-	redcard_cutoff = anchor_time - timedelta(
-		minutes=config.REDCARD_WINDOW_MINUTES
-	)
-	for entry in history:
-		if not isinstance(entry, dict):
-			continue
-		observed_at = _entry_time(entry)
-		if observed_at is None:
-			continue
-		if not redcard_cutoff <= observed_at <= anchor_time:
-			continue
-		redcards = _redcard_count(entry)
-		if (
-			redcards is not None
-			and redcards > config.REDCARD_THRESHOLD
-		):
-			return None
 
 	current_index = _find_cumulative_movement(
 		history,
@@ -214,6 +257,7 @@ def find_over_signal(match_id: str, history: list[dict]) -> dict | None:
 	}
 
 
+# Возвращает название команды из данных матча.
 def _match_team(entry: dict, key: str) -> str:
 	match_data = entry.get("match_data")
 	if not isinstance(match_data, dict):
@@ -222,6 +266,7 @@ def _match_team(entry: dict, key: str) -> str:
 	return value.strip() if isinstance(value, str) else ""
 
 
+# Находит сигнал при движении форы от нуля.
 def find_ah_signal(match_id: str, history: list[dict]) -> dict | None:
 	anchor_index = None
 	anchor_time = None
@@ -255,23 +300,8 @@ def find_ah_signal(match_id: str, history: list[dict]) -> dict | None:
 		return None
 
 	anchor = history[anchor_index]
-	if _has_excluded_anchor_match_time(anchor):
+	if not _is_valid_anchor(history, anchor, anchor_time):
 		return None
-
-	redcard_cutoff = anchor_time - timedelta(
-		minutes=config.REDCARD_WINDOW_MINUTES
-	)
-	for entry in history:
-		if not isinstance(entry, dict):
-			continue
-		observed_at = _entry_time(entry)
-		if observed_at is None:
-			continue
-		if not redcard_cutoff <= observed_at <= anchor_time:
-			continue
-		redcards = _redcard_count(entry)
-		if redcards is not None and redcards > config.REDCARD_THRESHOLD:
-			return None
 
 	current_index = _find_cumulative_movement(
 		history,
