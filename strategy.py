@@ -3,41 +3,8 @@ from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 
 import config
-
-
-# Разбирает одно- или двухзначное представление линии.
-def _line_components(value: object) -> list[Decimal] | None:
-	if value is None:
-		return None
-
-	parts = str(value).strip().split("/")
-	if len(parts) not in (1, 2):
-		return None
-
-	try:
-		values = [Decimal(part.strip()) for part in parts]
-	except InvalidOperation:
-		return None
-
-	return values if all(part.is_finite() for part in values) else None
-
-
-# Усредняет компоненты линии тотала с исходными знаками.
-def _normalize_total(value: object) -> Decimal | None:
-	values = _line_components(value)
-	if values is None:
-		return None
-	return sum(values, Decimal(0)) / len(values)
-
-
-# Усредняет модуль форы и возвращает её отрицательный знак при наличии.
-def _normalize_handicap(value: object) -> Decimal | None:
-	values = _line_components(value)
-	if values is None:
-		return None
-
-	handicap = sum((abs(part) for part in values), Decimal(0)) / len(values)
-	return -handicap if any(part.is_signed() for part in values) else handicap
+from line_utils import normalize_handicap as _normalize_handicap
+from line_utils import normalize_total as _normalize_total
 
 
 # Читает время наблюдения из записи истории.
@@ -176,7 +143,7 @@ def _find_cumulative_movement(
 	anchor_time: datetime,
 	anchor_score: str,
 	value_for_entry: Callable[[dict], Decimal | None],
-	movement_for_step: Callable[[Decimal, Decimal], Decimal],
+	movement_for_step: Callable[[Decimal, Decimal, Decimal], Decimal],
 ) -> int | None:
 	threshold = Decimal(str(config.TOTAL_INCREASE))
 	max_interval = timedelta(minutes=config.MAX_OBSERVATION_INTERVAL_MINUTES)
@@ -202,7 +169,7 @@ def _find_cumulative_movement(
 		if elapsed < timedelta(0) or elapsed > max_interval:
 			return None
 
-		step = movement_for_step(older_value, newer_value)
+		step = movement_for_step(older_value, newer_value, anchor_value)
 		if step < 0 or step >= threshold:
 			break
 		accumulated_movement += step
@@ -213,47 +180,71 @@ def _find_cumulative_movement(
 	return None
 
 
-# Находит сигнал при росте линии тотала.
-def find_over_signal(match_id: str, history: list[dict]) -> dict | None:
+# Находит якорь и проверяет общее условие накопленного движения линии.
+def _find_signal_indices(
+	history: list[dict],
+	*,
+	value_for_entry: Callable[[dict], Decimal | None],
+	movement_for_step: Callable[[Decimal, Decimal, Decimal], Decimal],
+	anchor_value_is_valid: Callable[[Decimal], bool] | None = None,
+) -> tuple[int, int, Decimal] | None:
 	anchor_index = None
 	anchor_time = None
-	anchor_total = None
+	anchor_value = None
 
 	for index in range(len(history) - 1, -1, -1):
 		entry = history[index]
 		if not isinstance(entry, dict) or not _match_score(entry):
 			continue
-		total = _market_total(entry)
+		value = value_for_entry(entry)
 		observed_at = _entry_time(entry)
-		if total is None or observed_at is None:
+		if value is None or observed_at is None:
 			continue
 		anchor_index = index
 		anchor_time = observed_at
-		anchor_total = total
+		anchor_value = value
 		break
 
-	if anchor_index is None or anchor_time is None or anchor_total is None:
+	if anchor_index is None or anchor_time is None or anchor_value is None:
 		return None
 
 	anchor = history[anchor_index]
+	if (
+		anchor_value_is_valid is not None
+		and not anchor_value_is_valid(anchor_value)
+	):
+		return None
 	if not _is_valid_anchor(history, anchor, anchor_time):
 		return None
 
 	current_index = _find_cumulative_movement(
 		history,
 		anchor_index,
-		anchor_total,
+		anchor_value,
 		anchor_time,
 		_match_score(anchor),
-		_market_total,
-		lambda older, newer: newer - older,
+		value_for_entry,
+		movement_for_step,
 	)
 	if current_index is None:
 		return None
+	return current_index, anchor_index, anchor_value
+
+
+# Находит сигнал при росте линии тотала.
+def find_over_signal(match_id: str, history: list[dict]) -> dict | None:
+	indices = _find_signal_indices(
+		history,
+		value_for_entry=_market_total,
+		movement_for_step=lambda older, newer, _anchor: newer - older,
+	)
+	if indices is None:
+		return None
+	current_index, anchor_index, _ = indices
 	return {
 		"match_id": match_id,
 		"current": history[current_index],
-		"anchor": anchor,
+		"anchor": history[anchor_index],
 	}
 
 
@@ -268,54 +259,22 @@ def _match_team(entry: dict, key: str) -> str:
 
 # Находит сигнал при движении форы от нуля.
 def find_ah_signal(match_id: str, history: list[dict]) -> dict | None:
-	anchor_index = None
-	anchor_time = None
-	anchor_handicap = None
-
-	for index in range(len(history) - 1, -1, -1):
-		entry = history[index]
-		if not isinstance(entry, dict) or not _match_score(entry):
-			continue
-		handicap = _market_handicap(entry)
-		observed_at = _entry_time(entry)
-		if handicap is None or observed_at is None:
-			continue
-		anchor_index = index
-		anchor_time = observed_at
-		anchor_handicap = handicap
-		break
-
-	if (
-		anchor_index is None
-		or anchor_time is None
-		or anchor_handicap is None
-	):
-		return None
-
-	if anchor_handicap in {
-		Decimal("-0.25"),
-		Decimal("0.25"),
-		Decimal("0"),
-	}:
-		return None
-
-	anchor = history[anchor_index]
-	if not _is_valid_anchor(history, anchor, anchor_time):
-		return None
-
-	current_index = _find_cumulative_movement(
+	indices = _find_signal_indices(
 		history,
-		anchor_index,
-		anchor_handicap,
-		anchor_time,
-		_match_score(anchor),
-		_market_handicap,
-		lambda older, newer: (
-			newer - older if anchor_handicap >= 0 else older - newer
+		value_for_entry=_market_handicap,
+		movement_for_step=lambda older, newer, anchor_value: (
+			newer - older if anchor_value >= 0 else older - newer
 		),
+		anchor_value_is_valid=lambda anchor_value: anchor_value not in {
+			Decimal("-0.25"),
+			Decimal("0.25"),
+			Decimal("0"),
+		},
 	)
-	if current_index is None:
+	if indices is None:
 		return None
+	current_index, anchor_index, anchor_handicap = indices
+	anchor = history[anchor_index]
 
 	team = (
 		_match_team(anchor, "away_team")

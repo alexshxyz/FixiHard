@@ -10,8 +10,8 @@ import requests
 from dotenv import load_dotenv
 
 import config
+from line_utils import normalize_handicap, normalize_total
 from logger import logger
-from strategy import _normalize_handicap, _normalize_total
 
 
 def _normalize_line(
@@ -27,7 +27,7 @@ def _normalize_line(
 
 
 def _format_handicap(value: object) -> str:
-	handicap = _normalize_line(value, _normalize_handicap)
+	handicap = _normalize_line(value, normalize_handicap)
 	if "-" in handicap:
 		return handicap
 
@@ -131,7 +131,7 @@ class TelegramNotifier:
 			value = market.get("total") if isinstance(market, dict) else None
 			if value is None:
 				raise ValueError("Over signal anchor is missing total")
-			total = _normalize_line(value, _normalize_total)
+			total = _normalize_line(value, normalize_total)
 			outcome = f"Over {html.escape(total)}"
 		elif strategy == "ah":
 			market = market_data.get("ah")

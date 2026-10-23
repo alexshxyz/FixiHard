@@ -86,11 +86,16 @@ def _record_match_updates(analyzer, matches):
     _log_matches_updated(matches)
 
 
+# Собирает актуальный snapshot матчей и сверяет его с наблюдателем.
+def _reconcile_matches(page, live_watch):
+    refreshed_matches = scrape_matches(page, log_odds_found=False)
+    live_watch.reconcile_after_refresh(refreshed_matches)
+
+
 # Обновляет страницу и сверяет список матчей.
 def _refresh_page_and_reconcile(page, live_watch):
     _refresh_page_until_odds(page)
-    refreshed_matches = scrape_matches(page, log_odds_found=False)
-    live_watch.reconcile_after_refresh(refreshed_matches)
+    _reconcile_matches(page, live_watch)
 
 
 # Обновляет таблицу либо страницу и сверяет матчи.
@@ -107,8 +112,7 @@ def _refresh_live_table_and_reconcile(page, live_watch):
             )
         _refresh_page_until_odds(page)
 
-    refreshed_matches = scrape_matches(page, log_odds_found=False)
-    live_watch.reconcile_after_refresh(refreshed_matches)
+    _reconcile_matches(page, live_watch)
     return page_was_reloaded
 
 
