@@ -1,6 +1,3 @@
-from collections.abc import Callable
-from decimal import Decimal, InvalidOperation
-import html
 import os
 from pathlib import Path
 import time
@@ -10,35 +7,8 @@ import requests
 from dotenv import load_dotenv
 
 import config
-from line_utils import normalize_handicap, normalize_total
 from logger import logger
-
-
-def _normalize_line(
-	value: object,
-	normalizer: Callable[[object], Decimal | None],
-) -> str:
-	line = str(value)
-	if "/" not in line:
-		return line
-
-	normalized = normalizer(line)
-	return str(normalized) if normalized is not None else line
-
-
-def _format_handicap(value: object) -> str:
-	handicap = _normalize_line(value, normalize_handicap)
-	if "-" in handicap:
-		return handicap
-
-	try:
-		number = Decimal(handicap.strip())
-	except InvalidOperation:
-		return handicap
-	if not number.is_finite() or number <= 0:
-		return handicap
-
-	return f"-{handicap.strip().lstrip('+')}"
+from signal_formatter import format_signal as _format_signal
 
 
 class TelegramNotifier:
@@ -99,57 +69,7 @@ class TelegramNotifier:
 
 	# Формирует HTML-сообщение по сигналу стратегии.
 	def format_signal(self, strategy: str, signal: dict) -> str:
-		anchor = signal.get("anchor")
-		if not isinstance(anchor, dict):
-			raise ValueError("Signal is missing its anchor record")
-		match_data = anchor.get("match_data")
-		market_data = anchor.get("market_data")
-		if not isinstance(match_data, dict) or not isinstance(market_data, dict):
-			raise ValueError("Signal anchor is missing match or market data")
-
-		match_id = str(match_data.get("match_id", signal.get("match_id", "")))
-		league = str(match_data.get("league", ""))
-		match_time = str(match_data.get("match_time", ""))
-		home_team = str(match_data.get("home_team", ""))
-		away_team = str(match_data.get("away_team", ""))
-		score = str(match_data.get("score", ""))
-		if not all((match_id, league, match_time, home_team, away_team, score)):
-			raise ValueError("Signal anchor is missing required match details")
-
-		url = f"https://www.goaloo.com/oddscomp/{quote(match_id, safe='')}"
-		header = f"<b>{html.escape(league)}</b>"
-		match_line = (
-			f"🧊 {html.escape(match_time)}’ "
-			f'<a href="{html.escape(url, quote=True)}">'
-			f"{html.escape(home_team)} "
-			f"{html.escape(score.replace('-', ' - ', 1))} "
-			f"{html.escape(away_team)}</a>"
-		)
-
-		if strategy == "over":
-			market = market_data.get("over")
-			value = market.get("total") if isinstance(market, dict) else None
-			if value is None:
-				raise ValueError("Over signal anchor is missing total")
-			total = _normalize_line(value, normalize_total)
-			outcome = f"Over {html.escape(total)}"
-		elif strategy == "ah":
-			market = market_data.get("ah")
-			value = market.get("handicap") if isinstance(market, dict) else None
-			if value is None:
-				raise ValueError("AH signal anchor is missing handicap")
-			team = str(signal.get("team", ""))
-			if team == home_team:
-				side = "Home"
-			elif team == away_team:
-				side = "Away"
-			else:
-				raise ValueError("AH signal team does not match either match team")
-			outcome = f"Handicap {html.escape(_format_handicap(value))} {side}"
-		else:
-			raise ValueError(f"Unsupported signal strategy: {strategy}")
-
-		return f"{header}\n{match_line}\n\n{outcome}"
+		return _format_signal(strategy, signal)
 
 	# Отправляет уведомление Telegram с повторными попытками.
 	def send_signal(self, strategy: str, signal: dict) -> bool:

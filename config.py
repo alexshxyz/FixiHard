@@ -1,3 +1,6 @@
+from decimal import Decimal
+
+
 # Сайт и режим браузера
 SITE_URL = "https://www.goaloo.com/"
 HEADLESS = True
@@ -64,3 +67,11 @@ MAX_OBSERVATION_INTERVAL_MINUTES = 5
 TOTAL_INCREASE = 0.5
 REDCARD_THRESHOLD = 0
 EXCLUDED_ANCHOR_MATCH_TIME_VALUES = ("90", "90+", "Penalty", "FT", "ET")
+
+# Русские подписи стандартных исходов азиатской форы.
+NORMALIZED_HANDICAP_OUTCOMES = {
+	("Home", Decimal("-0.5")): "Победа 1",
+	("Away", Decimal("-0.5")): "Победа 2",
+	("Home", Decimal("0.5")): "1X",
+	("Away", Decimal("0.5")): "X2",
+}

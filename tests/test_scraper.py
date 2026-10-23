@@ -1,7 +1,4 @@
-import json
-import tempfile
 import unittest
-from pathlib import Path
 from unittest.mock import Mock, call, patch
 
 import scraper
@@ -249,61 +246,7 @@ class ScraperPersistenceAndLoggingTests(unittest.TestCase):
         self.logger = self.logger_patcher.start()
         self.addCleanup(self.logger_patcher.stop)
 
-    def test_write_matches_total_writes_utf8_json_with_all_match_data(self):
-        matches = [
-            Match(
-                match_id="m-1",
-                home_team="Команда",
-                away_team="Away",
-                redcards=1,
-            )
-        ]
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            output_path = Path(temporary_directory) / "matches.json"
-
-            scraper._write_matches_total(matches, output_path)
-
-            written = json.loads(output_path.read_text(encoding="utf-8"))
-            rendered = output_path.read_text(encoding="utf-8")
-
-        self.assertEqual(written, [matches[0].to_dict()])
-        self.assertIn("\u041a\u043e\u043c\u0430\u043d\u0434\u0430", rendered)
-
-    def test_write_matches_total_writes_empty_list(self):
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            output_path = Path(temporary_directory) / "matches.json"
-
-            scraper._write_matches_total([], output_path)
-
-            self.assertEqual(
-                json.loads(output_path.read_text(encoding="utf-8")), []
-            )
-
-    def test_write_matches_total_uses_default_json_path(self):
-        output_file = Mock()
-        resolved_path = Mock()
-        resolved_path.with_name.return_value = output_file
-
-        with patch("scraper.Path", return_value=resolved_path) as path_constructor:
-            scraper._write_matches_total([])
-
-        path_constructor.assert_called_once_with(scraper.__file__)
-        resolved_path.with_name.assert_called_once_with("matches_total.json")
-        output_file.write_text.assert_called_once_with(
-            "[]",
-            encoding="utf-8",
-        )
-
-    def test_write_matches_total_propagates_file_error(self):
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            missing_parent_path = (
-                Path(temporary_directory) / "missing" / "matches.json"
-            )
-
-            with self.assertRaises(FileNotFoundError):
-                scraper._write_matches_total([], missing_parent_path)
-
-    def test_scrape_matches_runs_waits_collects_writes_and_logs(self):
+    def test_scrape_matches_collects_and_logs_without_writing_debug_snapshot(self):
         page = Mock()
         matches = [
             Match(match_id="m-1"),
@@ -313,14 +256,14 @@ class ScraperPersistenceAndLoggingTests(unittest.TestCase):
             patch("scraper.wait_for_match_data") as wait_data,
             patch("scraper.wait_for_match_odds") as wait_odds,
             patch("scraper._collect_current_matches", return_value=matches),
-            patch("scraper._write_matches_total") as write_total,
+            patch("pathlib.Path.write_text") as write_text,
         ):
             result = scraper.scrape_matches(page)
 
         self.assertIs(result, matches)
         wait_data.assert_called_once_with(page)
         wait_odds.assert_called_once_with(page, log_success=True)
-        write_total.assert_called_once_with(matches)
+        write_text.assert_not_called()
         self.logger.info.assert_called_once_with(
             "Active matches: %d%s", 2, " (m-1, m-2)"
         )
@@ -331,14 +274,14 @@ class ScraperPersistenceAndLoggingTests(unittest.TestCase):
             patch("scraper.wait_for_match_data") as wait_data,
             patch("scraper.wait_for_match_odds") as wait_odds,
             patch("scraper._collect_current_matches", return_value=[]),
-            patch("scraper._write_matches_total") as write_total,
+            patch("pathlib.Path.write_text") as write_text,
         ):
             result = scraper.scrape_matches(page, log_odds_found=False)
 
         self.assertEqual(result, [])
         wait_data.assert_called_once_with(page)
         wait_odds.assert_called_once_with(page, log_success=False)
-        write_total.assert_called_once_with([])
+        write_text.assert_not_called()
         self.logger.info.assert_called_once_with("Active matches: %d%s", 0, "")
 
     def test_scrape_matches_stops_after_wait_failure_without_writing(self):
@@ -347,31 +290,14 @@ class ScraperPersistenceAndLoggingTests(unittest.TestCase):
             patch("scraper.wait_for_match_data", side_effect=TimeoutError("no rows")),
             patch("scraper.wait_for_match_odds") as wait_odds,
             patch("scraper._collect_current_matches") as collect,
-            patch("scraper._write_matches_total") as write_total,
+            patch("pathlib.Path.write_text") as write_text,
         ):
             with self.assertRaisesRegex(TimeoutError, "no rows"):
                 scraper.scrape_matches(page)
 
         wait_odds.assert_not_called()
         collect.assert_not_called()
-        write_total.assert_not_called()
-
-    def test_scrape_matches_stops_after_save_failure_without_success_log(self):
-        page = Mock()
-        matches = [Match(match_id="m-1")]
-        with (
-            patch("scraper.wait_for_match_data"),
-            patch("scraper.wait_for_match_odds"),
-            patch("scraper._collect_current_matches", return_value=matches),
-            patch(
-                "scraper._write_matches_total",
-                side_effect=OSError("disk full"),
-            ),
-        ):
-            with self.assertRaisesRegex(OSError, "disk full"):
-                scraper.scrape_matches(page)
-
-        self.logger.info.assert_not_called()
+        write_text.assert_not_called()
 
     def test_log_matches_updated_formats_ids_and_empty_list(self):
         scraper._log_matches_updated(

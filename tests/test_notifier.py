@@ -5,6 +5,7 @@ import requests
 
 import config
 from notifier import TelegramNotifier
+from signal_formatter import format_signal
 
 
 class TelegramNotifierTests(unittest.TestCase):
@@ -33,68 +34,11 @@ class TelegramNotifierTests(unittest.TestCase):
             },
         }
 
-    def test_formats_over_signal_using_html_and_anchor_details(self):
-        message = self.notifier.format_signal("over", self.signal)
-
+    def test_format_signal_remains_available_on_notifier(self):
         self.assertEqual(
-            message,
-            '<b>Slovakia 2. Liga</b>\n'
-            '🧊 40’ <a href="https://www.goaloo.com/oddscomp/3037951">'
-            "Tatran Presov 0 - 1 MSK Zilina B</a>\n\n"
-            "Over 1.5",
+            self.notifier.format_signal("over", self.signal),
+            format_signal("over", self.signal),
         )
-
-    def test_normalizes_asian_over_total(self):
-        self.signal["anchor"]["market_data"]["over"]["total"] = "3.0/3.5"
-
-        message = self.notifier.format_signal("over", self.signal)
-
-        self.assertTrue(message.endswith("Over 3.25"))
-
-    def test_formats_ah_signal_with_home_or_away_side(self):
-        home_message = self.notifier.format_signal("ah", self.signal)
-        self.assertTrue(home_message.endswith("Handicap -1.5 Home"))
-
-        self.signal["team"] = "MSK Zilina B"
-        away_message = self.notifier.format_signal("ah", self.signal)
-        self.assertTrue(away_message.endswith("Handicap -1.5 Away"))
-
-    def test_formats_positive_asian_handicap_with_a_leading_minus(self):
-        self.signal["anchor"]["market_data"]["ah"]["handicap"] = "1.5/2"
-
-        message = self.notifier.format_signal("ah", self.signal)
-
-        self.assertTrue(message.endswith("Handicap -1.75 Home"))
-
-    def test_normalizes_negative_asian_handicap(self):
-        self.signal["anchor"]["market_data"]["ah"]["handicap"] = "-1.5/2"
-
-        message = self.notifier.format_signal("ah", self.signal)
-
-        self.assertTrue(message.endswith("Handicap -1.75 Home"))
-
-    def test_preserves_existing_negative_handicap(self):
-        self.signal["anchor"]["market_data"]["ah"]["handicap"] = "-1.5"
-
-        message = self.notifier.format_signal("ah", self.signal)
-
-        self.assertTrue(message.endswith("Handicap -1.5 Home"))
-
-    def test_does_not_add_a_minus_to_zero_handicap(self):
-        self.signal["anchor"]["market_data"]["ah"]["handicap"] = "0"
-
-        message = self.notifier.format_signal("ah", self.signal)
-
-        self.assertTrue(message.endswith("Handicap 0 Home"))
-
-    def test_escapes_user_supplied_html(self):
-        self.signal["anchor"]["match_data"]["league"] = "Liga <A>"
-        self.signal["anchor"]["match_data"]["home_team"] = "Team <One>"
-
-        message = self.notifier.format_signal("over", self.signal)
-
-        self.assertIn("<b>Liga &lt;A&gt;</b>", message)
-        self.assertIn("Team &lt;One&gt;", message)
 
     @patch("notifier.time.sleep")
     @patch("notifier.requests.post")
@@ -124,6 +68,10 @@ class TelegramNotifierTests(unittest.TestCase):
         )
         self.assertEqual(
             post_mock.call_args.kwargs["data"]["parse_mode"], "HTML"
+        )
+        self.assertEqual(
+            post_mock.call_args.kwargs["data"]["text"],
+            format_signal("over", self.signal),
         )
         self.assertEqual(
             post_mock.call_args.kwargs["timeout"],
