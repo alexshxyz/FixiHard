@@ -1,3 +1,5 @@
+from collections.abc import Callable
+from decimal import Decimal, InvalidOperation
 import html
 import os
 from pathlib import Path
@@ -9,6 +11,34 @@ from dotenv import load_dotenv
 
 import config
 from logger import logger
+from strategy import _normalize_handicap, _normalize_total
+
+
+def _normalize_line(
+	value: object,
+	normalizer: Callable[[object], Decimal | None],
+) -> str:
+	line = str(value)
+	if "/" not in line:
+		return line
+
+	normalized = normalizer(line)
+	return str(normalized) if normalized is not None else line
+
+
+def _format_handicap(value: object) -> str:
+	handicap = _normalize_line(value, _normalize_handicap)
+	if "-" in handicap:
+		return handicap
+
+	try:
+		number = Decimal(handicap.strip())
+	except InvalidOperation:
+		return handicap
+	if not number.is_finite() or number <= 0:
+		return handicap
+
+	return f"-{handicap.strip().lstrip('+')}"
 
 
 class TelegramNotifier:
@@ -101,7 +131,8 @@ class TelegramNotifier:
 			value = market.get("total") if isinstance(market, dict) else None
 			if value is None:
 				raise ValueError("Over signal anchor is missing total")
-			outcome = f"Over {html.escape(str(value))}"
+			total = _normalize_line(value, _normalize_total)
+			outcome = f"Over {html.escape(total)}"
 		elif strategy == "ah":
 			market = market_data.get("ah")
 			value = market.get("handicap") if isinstance(market, dict) else None
@@ -114,7 +145,7 @@ class TelegramNotifier:
 				side = "Away"
 			else:
 				raise ValueError("AH signal team does not match either match team")
-			outcome = f"Handicap {html.escape(str(value))} {side}"
+			outcome = f"Handicap {html.escape(_format_handicap(value))} {side}"
 		else:
 			raise ValueError(f"Unsupported signal strategy: {strategy}")
 
