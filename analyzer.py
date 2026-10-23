@@ -1,11 +1,14 @@
 import json
-from datetime import datetime, timedelta
+import sqlite3
+from contextlib import closing
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import config
 from logger import logger
 from models import Match
 from notifier import TelegramNotifier
+from signal_formatter import format_signal_details
 from strategy import find_ah_signal, find_over_signal
 
 
@@ -14,7 +17,7 @@ class MatchAnalyzer:
 	def __init__(
 		self,
 		history_path: str | Path | None = None,
-		signals_path: str | Path | None = None,
+		database_path: str | Path | None = None,
 		history_copy_path: str | Path | None = None,
 		notifier: TelegramNotifier | None = None,
 	):
@@ -31,13 +34,13 @@ class MatchAnalyzer:
 			if history_copy_path is not None
 			else self.history_path.with_name("matches_history_copy.json")
 		)
-		self.signals_path = (
-			Path(signals_path)
-			if signals_path is not None
-			else Path(__file__).with_name("matches.json")
+		self.database_path = (
+			Path(database_path)
+			if database_path is not None
+			else Path(__file__).with_name("matches.sqlite3")
 		)
 		self.notifier = notifier
-		self.signals = self._read_signals()
+		self._initialize_signals_database()
 
 	# Создаёт историю и проверяет начальные данные матчей.
 	def initialize(self, matches: list[Match]) -> None:
@@ -133,6 +136,8 @@ class MatchAnalyzer:
 
 	# Записывает обе версии истории на диск.
 	def _write_history(self) -> None:
+		if config.DEBUG_MODE != 1:
+			return
 		self._write_history_file(self.history_path, self.histories)
 		self._write_history_file(self.history_copy_path, self.copy_histories)
 
@@ -150,52 +155,27 @@ class MatchAnalyzer:
 			encoding="utf-8",
 		)
 
-	# Загружает и проверяет ранее сохранённые сигналы.
-	def _read_signals(self) -> dict[str, list[str]]:
-		if not self.signals_path.exists():
-			return {"over": [], "ah": []}
-
-		content = self.signals_path.read_text(encoding="utf-8")
-		if not content.strip():
-			return {"over": [], "ah": []}
-
-		try:
-			document = json.loads(content)
-		except json.JSONDecodeError as error:
-			raise ValueError(
-				f"Invalid signals file: {self.signals_path}"
-			) from error
-
-		if document == []:
-			return {"over": [], "ah": []}
-
-		if not isinstance(document, dict) or not isinstance(
-			document.get("over"), list
-		):
-			raise ValueError(
-				f"Invalid signals file structure: {self.signals_path}"
-			)
-
-		signals = {}
-		for strategy in ("over", "ah"):
-			messages = document.get(strategy, [])
-			if not isinstance(messages, list) or any(
-				not isinstance(message, str) for message in messages
-			):
-				raise ValueError(
-					f"Invalid {strategy} signals in {self.signals_path}"
+	# Создаёт таблицу сигналов, если база ещё не инициализирована.
+	def _initialize_signals_database(self) -> None:
+		with closing(sqlite3.connect(self.database_path)) as connection:
+			with connection:
+				connection.execute(
+					"""
+					CREATE TABLE IF NOT EXISTS signals (
+						date TEXT NOT NULL,
+						league TEXT NOT NULL,
+						home_team TEXT NOT NULL,
+						away_team TEXT NOT NULL,
+						prediction TEXT NOT NULL,
+						final_score TEXT NOT NULL DEFAULT '',
+						result TEXT NOT NULL DEFAULT '',
+						match_id TEXT NOT NULL,
+						strategy TEXT NOT NULL,
+						source TEXT NOT NULL,
+						UNIQUE (strategy, match_id)
+					)
+					"""
 				)
-			signals[strategy] = messages
-		signals.setdefault("ah", [])
-		return signals
-
-	# Сохраняет актуальный список сигналов в JSON-файл.
-	def _write_signals(self, signals: dict[str, list[str]]) -> None:
-		document = {"over": signals["over"], "ah": signals["ah"]}
-		self.signals_path.write_text(
-			json.dumps(document, ensure_ascii=False, indent=2),
-			encoding="utf-8",
-		)
 
 	# Ищет новые сигналы для матча и отправляет уведомления.
 	def _analyze_match(self, match_id: str) -> None:
@@ -212,9 +192,10 @@ class MatchAnalyzer:
 				over_signal["message"] = (
 					f"{match_id} {current_total} -> {anchor_total}"
 				)
-				self._save_signal("over", over_signal["message"])
-				logger.info(over_signal["message"])
-				self._notify("over", over_signal)
+				telegram_message = self._save_signal("over", over_signal)
+				if telegram_message is not None:
+					logger.info(over_signal["message"])
+					self._notify("over", over_signal, telegram_message)
 
 		if not self._has_signal("ah", match_id):
 			ah_signal = find_ah_signal(match_id, history)
@@ -229,27 +210,64 @@ class MatchAnalyzer:
 					f"{match_id} {current_handicap} -> {anchor_handicap}"
 					f" | team: {ah_signal['team']}"
 				)
-				self._save_signal("ah", ah_signal["message"])
-				logger.info(ah_signal["message"])
-				self._notify("ah", ah_signal)
+				telegram_message = self._save_signal("ah", ah_signal)
+				if telegram_message is not None:
+					logger.info(ah_signal["message"])
+					self._notify("ah", ah_signal, telegram_message)
 
-	# Проверяет, был ли уже сохранён сигнал для этого матча.
+	# Проверяет, был ли уже сохранён сигнал этой стратегии для матча.
 	def _has_signal(self, strategy: str, match_id: str) -> bool:
-		return any(
-			message.startswith(f"{match_id} ")
-			for message in self.signals[strategy]
-		)
+		with closing(sqlite3.connect(self.database_path)) as connection:
+			return connection.execute(
+				"""
+				SELECT 1 FROM signals
+				WHERE strategy = ? AND match_id = ?
+				LIMIT 1
+				""",
+				(strategy, match_id),
+			).fetchone() is not None
 
-	# Добавляет сигнал в файл и обновляет состояние анализатора.
-	def _save_signal(self, strategy: str, message: str) -> None:
-		updated_signals = {
-			**self.signals,
-			strategy: [*self.signals[strategy], message],
-		}
-		self._write_signals(updated_signals)
-		self.signals = updated_signals
+	# Сохраняет отправляемый сигнал с данными матча.
+	def _save_signal(self, strategy: str, signal: dict) -> str | None:
+		match_data = signal["anchor"]["match_data"]
+		telegram_message, prediction = format_signal_details(strategy, signal)
+		record = (
+			date.today().isoformat(),
+			str(match_data.get("league", "")),
+			str(match_data.get("home_team", "")),
+			str(match_data.get("away_team", "")),
+			prediction,
+			"",
+			"",
+			str(match_data.get("match_id", signal.get("match_id", ""))),
+			strategy,
+			config.SIGNAL_SOURCE,
+		)
+		with closing(sqlite3.connect(self.database_path)) as connection:
+			with connection:
+				cursor = connection.execute(
+					"""
+					INSERT INTO signals (
+						date, league, home_team, away_team, prediction,
+						final_score, result, match_id, strategy, source
+					)
+					VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+					ON CONFLICT(strategy, match_id) DO NOTHING
+					""",
+					record,
+				)
+		return telegram_message if cursor.rowcount == 1 else None
 
 	# Отправляет сигнал через настроенный notifier.
-	def _notify(self, strategy: str, signal: dict) -> None:
+	def _notify(
+		self,
+		strategy: str,
+		signal: dict,
+		formatted_message: str,
+	) -> None:
 		if self.notifier is not None:
-			self.notifier.send_signal(strategy, signal)
+			self.notifier.send_signal(
+				strategy,
+				signal,
+				formatted_message=formatted_message,
+			)

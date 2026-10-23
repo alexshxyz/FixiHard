@@ -72,8 +72,17 @@ class TelegramNotifier:
 		return _format_signal(strategy, signal)
 
 	# Отправляет уведомление Telegram с повторными попытками.
-	def send_signal(self, strategy: str, signal: dict) -> bool:
-		message = self.format_signal(strategy, signal)
+	def send_signal(
+		self,
+		strategy: str,
+		signal: dict,
+		formatted_message: str | None = None,
+	) -> bool:
+		message = (
+			formatted_message
+			if formatted_message is not None
+			else self.format_signal(strategy, signal)
+		)
 		url = (
 			"https://api.telegram.org/bot"
 			f"{self.bot_token}/sendMessage"

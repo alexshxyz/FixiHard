@@ -30,7 +30,7 @@ class SignalFormatterTests(unittest.TestCase):
         self.assertEqual(
             message,
             '<b>Slovakia 2. Liga</b>\n'
-            '🧊 40’ <a href="https://www.goaloo.com/oddscomp/3037951">'
+            '⚡ 40’ <a href="https://www.goaloo.com/oddscomp/3037951">'
             "Tatran Presov 0 - 1 MSK Zilina B</a>\n\n"
             "Тотал больше 1.5",
         )

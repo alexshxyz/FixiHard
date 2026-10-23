@@ -12,4 +12,5 @@ matches_history.json
 matches_total.json
 matches.json
 matches_history_copy.json
-think.md
+matches.sqlite3
+matches.sqlite3-*

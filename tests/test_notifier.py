@@ -40,6 +40,24 @@ class TelegramNotifierTests(unittest.TestCase):
             format_signal("over", self.signal),
         )
 
+    @patch("notifier.requests.post")
+    def test_sends_preformatted_message_without_formatting_it_again(self, post_mock):
+        post_mock.return_value = Mock(json=Mock(return_value={"ok": True}))
+
+        with patch.object(self.notifier, "format_signal") as format_mock:
+            sent = self.notifier.send_signal(
+                "over",
+                self.signal,
+                formatted_message="Prepared prediction",
+            )
+
+        self.assertTrue(sent)
+        format_mock.assert_not_called()
+        self.assertEqual(
+            post_mock.call_args.kwargs["data"]["text"],
+            "Prepared prediction",
+        )
+
     @patch("notifier.time.sleep")
     @patch("notifier.requests.post")
     def test_retries_twice_then_succeeds_using_socks_proxy(

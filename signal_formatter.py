@@ -9,6 +9,7 @@ from line_utils import normalize_handicap, normalize_total
 from logger import logger
 
 
+# Нормализует линию, если она содержит несколько частей.
 def _normalize_line(
 	value: object,
 	normalizer: Callable[[object], Decimal | None],
@@ -21,6 +22,7 @@ def _normalize_line(
 	return str(normalized) if normalized is not None else line
 
 
+# Форматирует фору с учётом её знака.
 def _format_handicap(value: object) -> str:
 	handicap = _normalize_line(value, normalize_handicap)
 	if "-" in handicap:
@@ -36,6 +38,7 @@ def _format_handicap(value: object) -> str:
 	return f"-{handicap.strip().lstrip('+')}"
 
 
+# Убирает лишние нули из десятичного числа.
 def _format_decimal(value: Decimal) -> str:
 	if value == 0:
 		return "0"
@@ -45,11 +48,13 @@ def _format_decimal(value: Decimal) -> str:
 	return formatted
 
 
+# Форматирует фору для отображения со знаком.
 def _format_display_handicap(value: Decimal) -> str:
 	formatted = _format_decimal(value)
 	return f"+{formatted}" if value > 0 else formatted
 
 
+# Округляет четвертные линии тотала вверх до половины.
 def _round_quarter_total(value: Decimal) -> Decimal:
 	fractional_part = abs(value) % 1
 	if fractional_part in (Decimal("0.25"), Decimal("0.75")):
@@ -57,6 +62,7 @@ def _round_quarter_total(value: Decimal) -> Decimal:
 	return value
 
 
+# Округляет четвертные форы от нуля до половины.
 def _round_quarter_handicap(value: Decimal) -> Decimal:
 	fractional_part = abs(value) % 1
 	if fractional_part not in (Decimal("0.25"), Decimal("0.75")):
@@ -68,6 +74,7 @@ def _round_quarter_handicap(value: Decimal) -> Decimal:
 	return -rounded_magnitude if value.is_signed() else rounded_magnitude
 
 
+# Разбирает счёт и возвращает голы хозяев и гостей.
 def _parse_score(score: str) -> tuple[int, int] | None:
 	match = re.fullmatch(r"\s*(\d+)\s*[-:]\s*(\d+)\s*", score)
 	if match is None:
@@ -75,7 +82,8 @@ def _parse_score(score: str) -> tuple[int, int] | None:
 	return int(match.group(1)), int(match.group(2))
 
 
-def format_signal(strategy: str, signal: dict) -> str:
+# Формирует текст сообщения и prediction по данным сигнала.
+def _format_signal_parts(strategy: str, signal: dict) -> tuple[str, str]:
 	anchor = signal.get("anchor")
 	if not isinstance(anchor, dict):
 		raise ValueError("Signal is missing its anchor record")
@@ -96,7 +104,7 @@ def format_signal(strategy: str, signal: dict) -> str:
 	url = f"https://www.goaloo.com/oddscomp/{quote(match_id, safe='')}"
 	header = f"<b>{html.escape(league)}</b>"
 	match_line = (
-		f"🧊 {html.escape(match_time)}’ "
+		f"⚡ {html.escape(match_time)}’ "
 		f'<a href="{html.escape(url, quote=True)}">'
 		f"{html.escape(home_team)} "
 		f"{html.escape(score.replace('-', ' - ', 1))} "
@@ -178,4 +186,14 @@ def format_signal(strategy: str, signal: dict) -> str:
 	else:
 		raise ValueError(f"Unsupported signal strategy: {strategy}")
 
-	return f"{header}\n{match_line}\n\n{outcome}"
+	return f"{header}\n{match_line}\n\n{outcome}", outcome
+
+
+# Возвращает сообщение Telegram и исход для сохранения в базе.
+def format_signal_details(strategy: str, signal: dict) -> tuple[str, str]:
+	return _format_signal_parts(strategy, signal)
+
+
+# Формирует HTML-сообщение Telegram по сигналу.
+def format_signal(strategy: str, signal: dict) -> str:
+	return format_signal_details(strategy, signal)[0]
