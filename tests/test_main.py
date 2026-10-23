@@ -95,7 +95,7 @@ class MainTests(unittest.TestCase):
 
     def test_main_processes_updates_and_refreshes_at_deadline(self):
         self.page.wait_for_timeout.side_effect = self._shutdown_after_second_wait
-        self.monotonic.side_effect = [0, 0, 10, 20, 20]
+        self.monotonic.side_effect = [0, 0, 0, 10, 10, 10, 20, 20, 20, 20]
 
         def start_watch(_page, on_update, initial_matches, on_matches_deleted):
             self.assertIs(initial_matches, self.matches)
@@ -129,7 +129,9 @@ class MainTests(unittest.TestCase):
 
     def test_main_reloads_page_and_reattaches_live_watch_at_deadline(self):
         self.page.wait_for_timeout.side_effect = self._shutdown_after_second_wait
-        self.monotonic.side_effect = [0, 0, 1000, 1000, 1010, 1015]
+        self.monotonic.side_effect = [
+            0, 0, 0, 1000, 1000, 1000, 1010, 1015, 1015, 1015, 1015
+        ]
         self.start_live_watch.return_value = self.live_watch
 
         with patch("main.config.PAGE_REFRESH_INTERVAL_SECONDS", 1000):
@@ -145,7 +147,9 @@ class MainTests(unittest.TestCase):
 
     def test_main_falls_back_to_page_reload_when_live_refresh_has_no_odds(self):
         self.page.wait_for_timeout.side_effect = self._shutdown_after_second_wait
-        self.monotonic.side_effect = [0, 0, 10, 10, 10, 20]
+        self.monotonic.side_effect = [
+            0, 0, 0, 10, 10, 10, 20, 20, 20, 20
+        ]
         self.refresh_live_table.return_value = False
 
         with patch("main.config.PAGE_REFRESH_INTERVAL_SECONDS", 1000):
@@ -242,7 +246,7 @@ class MainTests(unittest.TestCase):
 
     def test_main_falls_back_to_page_refresh_after_live_errors(self):
         self.page.wait_for_timeout.side_effect = self._shutdown_after_second_wait
-        self.monotonic.side_effect = [0, 0, 10, 10, 20]
+        self.monotonic.side_effect = [0, 0, 0, 10, 10, 10, 20, 20]
         self.refresh_live_table.side_effect = RuntimeError("live refresh failed")
         self.refresh_page.return_value = True
 
@@ -311,6 +315,87 @@ class MainTests(unittest.TestCase):
         self.logger.error.assert_called_once_with(
             "%s. Restarting bot from a clean state.",
             unittest.mock.ANY,
+        )
+
+    def test_main_requests_scheduled_restart_and_cleans_up(self):
+        self.monotonic.side_effect = [0, 0, 2]
+
+        with self.assertRaises(main.ScheduledRestartRequested):
+            main.main(restart_deadline=2)
+
+        self.page.wait_for_timeout.assert_not_called()
+        self.browser.close.assert_called_once_with()
+        self.playwright.stop.assert_called_once_with()
+        self._assert_handlers_restored()
+
+    def test_main_restarts_if_deadline_is_reached_after_pending_updates(self):
+        self.monotonic.side_effect = [0, 0, 0, 1, 2]
+
+        with self.assertRaises(main.ScheduledRestartRequested):
+            main.main(restart_deadline=2)
+
+        self.page.wait_for_timeout.assert_called_once_with(1000)
+        self.live_watch.process_pending.assert_called_once_with()
+        self.browser.close.assert_called_once_with()
+        self.playwright.stop.assert_called_once_with()
+        self._assert_handlers_restored()
+
+    def test_main_restarts_immediately_when_wait_reaches_deadline(self):
+        self.monotonic.side_effect = [0, 0, 0, 2]
+
+        with self.assertRaises(main.ScheduledRestartRequested):
+            main.main(restart_deadline=2)
+
+        self.page.wait_for_timeout.assert_called_once_with(1000)
+        self.live_watch.process_pending.assert_not_called()
+        self.browser.close.assert_called_once_with()
+        self.playwright.stop.assert_called_once_with()
+        self._assert_handlers_restored()
+
+    def test_wait_for_matches_obeys_restart_deadline(self):
+        with patch("main.time.monotonic", side_effect=[10, 10]):
+            with self.assertRaises(main.ScheduledRestartRequested):
+                main._wait_for_matches(self.page, restart_deadline=10)
+
+        self.page.wait_for_timeout.assert_not_called()
+
+        with (
+            patch("main.config.NO_MATCHES_RETRY_SECONDS", 60),
+            patch("main.time.monotonic", side_effect=[5, 10]),
+        ):
+            with self.assertRaises(main.ScheduledRestartRequested):
+                main._wait_for_matches(self.page, restart_deadline=10)
+
+        self.page.wait_for_timeout.assert_called_once_with(5000)
+
+    def test_wait_for_matches_uses_full_retry_without_restart_deadline(self):
+        main._wait_for_matches(self.page)
+
+        self.page.wait_for_timeout.assert_called_once_with(
+            seconds_to_milliseconds(main.config.NO_MATCHES_RETRY_SECONDS)
+        )
+
+    def test_run_forever_replaces_process_after_scheduled_restart(self):
+        with (
+            patch(
+                "main.main",
+                side_effect=main.ScheduledRestartRequested,
+            ) as run_main,
+            patch(
+                "main.os.execv",
+                side_effect=RuntimeError("exec called"),
+            ) as execv,
+            patch("main.time.monotonic", return_value=0),
+            patch("main.sys.executable", "python.exe"),
+            patch("main.sys.argv", ["main.py", "--flag"]),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "exec called"):
+                main.run_forever()
+
+        run_main.assert_called_once_with(main.config.RESTART_HOURS * 3600)
+        execv.assert_called_once_with(
+            "python.exe",
+            ["python.exe", "main.py", "--flag"],
         )
 
     def test_main_reraises_operation_error_without_shutdown_and_cleans_up(self):

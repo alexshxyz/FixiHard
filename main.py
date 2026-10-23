@@ -1,5 +1,7 @@
+import os
 import random
 import signal
+import sys
 import threading
 import time
 from functools import partial
@@ -22,13 +24,30 @@ class ScriptRestartRequested(Exception):
     pass
 
 
+class ScheduledRestartRequested(Exception):
+    # Обозначает необходимость планового перезапуска процесса.
+    pass
+
+
 # Ожидает появления матчей перед повторной загрузкой.
-def _wait_for_matches(page):
+def _wait_for_matches(page, restart_deadline=None):
     logger.warning(
         "No matches found. Waiting %d seconds before reloading the page.",
         config.NO_MATCHES_RETRY_SECONDS,
     )
-    wait_for_seconds(page, config.NO_MATCHES_RETRY_SECONDS)
+    if restart_deadline is None:
+        wait_for_seconds(page, config.NO_MATCHES_RETRY_SECONDS)
+        return
+
+    remaining_seconds = restart_deadline - time.monotonic()
+    if remaining_seconds <= 0:
+        raise ScheduledRestartRequested
+    wait_for_seconds(
+        page,
+        min(config.NO_MATCHES_RETRY_SECONDS, remaining_seconds),
+    )
+    if time.monotonic() >= restart_deadline:
+        raise ScheduledRestartRequested
 
 
 # Повторяет обновление live-таблицы при ошибках.
@@ -48,7 +67,7 @@ def _refresh_live_table_with_retries(page):
 
 
 # Перезагружает страницу до появления актуальных коэффициентов.
-def _refresh_page_until_odds(page):
+def _refresh_page_until_odds(page, restart_deadline=None):
     failed_attempts = 0
     while True:
         try:
@@ -72,7 +91,7 @@ def _refresh_page_until_odds(page):
             return
 
         failed_attempts = 0
-        _wait_for_matches(page)
+        _wait_for_matches(page, restart_deadline)
 
 
 # Помечает запрос на штатное завершение бота.
@@ -93,24 +112,26 @@ def _reconcile_matches(page, live_watch):
 
 
 # Обновляет страницу и сверяет список матчей.
-def _refresh_page_and_reconcile(page, live_watch):
-    _refresh_page_until_odds(page)
+def _refresh_page_and_reconcile(page, live_watch, restart_deadline=None):
+    _refresh_page_until_odds(page, restart_deadline)
     _reconcile_matches(page, live_watch)
 
 
 # Обновляет таблицу либо страницу и сверяет матчи.
-def _refresh_live_table_and_reconcile(page, live_watch):
+def _refresh_live_table_and_reconcile(
+    page, live_watch, restart_deadline=None
+):
     live_refresh_result = _refresh_live_table_with_retries(page)
     page_was_reloaded = live_refresh_result is not True
     if page_was_reloaded:
         if live_refresh_result is False:
-            _wait_for_matches(page)
+            _wait_for_matches(page, restart_deadline)
         else:
             logger.warning(
                 "Live table refresh failed after all retries. "
                 "Falling back to a page refresh."
             )
-        _refresh_page_until_odds(page)
+        _refresh_page_until_odds(page, restart_deadline)
 
     _reconcile_matches(page, live_watch)
     return page_was_reloaded
@@ -118,16 +139,26 @@ def _refresh_live_table_and_reconcile(page, live_watch):
 
 # Перезапускает основной цикл после запроса на восстановление.
 def run_forever():
+    restart_deadline = time.monotonic() + config.RESTART_HOURS * 3600
     while True:
         try:
-            main()
+            main(restart_deadline)
             return
+        except ScheduledRestartRequested:
+            logger.info(
+                "Restart interval reached (%s hours). Restarting script...",
+                config.RESTART_HOURS,
+            )
+            os.execv(sys.executable, [sys.executable] + sys.argv)
         except ScriptRestartRequested as error:
             logger.error("%s. Restarting bot from a clean state.", error)
 
 
 # Инициализирует сервисы и выполняет основной цикл бота.
-def main():
+def main(restart_deadline=None):
+    if restart_deadline is None:
+        restart_deadline = time.monotonic() + config.RESTART_HOURS * 3600
+
     playwright = None
     browser = None
     shutdown_requested = threading.Event()
@@ -158,11 +189,23 @@ def main():
             time.monotonic() + config.PAGE_REFRESH_INTERVAL_SECONDS
         )
         while not shutdown_requested.is_set():
-            wait_for_seconds(page, config.MAIN_LOOP_WAIT_SECONDS)
+            now = time.monotonic()
+            if now >= restart_deadline:
+                raise ScheduledRestartRequested
+            wait_for_seconds(
+                page,
+                min(config.MAIN_LOOP_WAIT_SECONDS, restart_deadline - now),
+            )
+            if time.monotonic() >= restart_deadline:
+                raise ScheduledRestartRequested
             live_watch.process_pending()
             now = time.monotonic()
+            if now >= restart_deadline:
+                raise ScheduledRestartRequested
             if now >= next_page_refresh_at:
-                _refresh_page_and_reconcile(page, live_watch)
+                _refresh_page_and_reconcile(
+                    page, live_watch, restart_deadline
+                )
                 next_page_refresh_at = (
                     time.monotonic() + config.PAGE_REFRESH_INTERVAL_SECONDS
                 )
@@ -171,7 +214,7 @@ def main():
                 )
             elif now >= next_refresh_at:
                 page_was_reloaded = _refresh_live_table_and_reconcile(
-                    page, live_watch
+                    page, live_watch, restart_deadline
                 )
                 next_refresh_at = time.monotonic() + random.randint(
                     *config.LIVE_REFRESH_INTERVAL_SECONDS

@@ -467,6 +467,88 @@ class MatchAnalyzerTests(unittest.TestCase):
                 [("ah", "match-1"), ("over", "match-1")],
             )
 
+    def test_analyzes_and_notifies_a_new_handicap_signal(self):
+        with TemporaryDirectory() as temp_dir:
+            notifier = Mock()
+            analyzer = MatchAnalyzer(
+                database_path=Path(temp_dir) / "matches.sqlite3",
+                notifier=notifier,
+            )
+            current = {
+                "market_data": {"ah": {"handicap": "-1"}},
+            }
+            anchor = {
+                "market_data": {"ah": {"handicap": "-1.5"}},
+            }
+            signal = {
+                "match_id": "match-1",
+                "team": "Away",
+                "current": current,
+                "anchor": anchor,
+            }
+
+            with (
+                patch("analyzer.find_over_signal", return_value=None),
+                patch("analyzer.find_ah_signal", return_value=signal),
+                patch.object(
+                    analyzer, "_save_signal", return_value="formatted"
+                ) as save_signal,
+                patch("analyzer.logger") as logger_mock,
+            ):
+                analyzer.copy_histories["match-1"] = [current, anchor]
+                analyzer._analyze_match("match-1")
+
+            save_signal.assert_called_once_with("ah", signal)
+            logger_mock.info.assert_called_once_with(
+                "match-1 -1 -> -1.5 | team: Away"
+            )
+            notifier.send_signal.assert_called_once_with(
+                "ah",
+                signal,
+                formatted_message="formatted",
+            )
+
+    def test_does_not_notify_when_handicap_signal_was_not_inserted(self):
+        with TemporaryDirectory() as temp_dir:
+            notifier = Mock()
+            analyzer = MatchAnalyzer(
+                database_path=Path(temp_dir) / "matches.sqlite3",
+                notifier=notifier,
+            )
+            current = {"market_data": {"ah": {"handicap": "1"}}}
+            anchor = {"market_data": {"ah": {"handicap": "1.5"}}}
+            signal = {
+                "match_id": "match-1",
+                "team": "Home",
+                "current": current,
+                "anchor": anchor,
+            }
+
+            with (
+                patch("analyzer.find_over_signal", return_value=None),
+                patch("analyzer.find_ah_signal", return_value=signal),
+                patch.object(analyzer, "_save_signal", return_value=None),
+                patch("analyzer.logger") as logger_mock,
+            ):
+                analyzer.copy_histories["match-1"] = [current, anchor]
+                analyzer._analyze_match("match-1")
+
+            logger_mock.info.assert_not_called()
+            notifier.send_signal.assert_not_called()
+
+    def test_ignores_matches_without_ids_and_unchanged_updates(self):
+        with TemporaryDirectory() as temp_dir:
+            analyzer = MatchAnalyzer(
+                history_path=Path(temp_dir) / "history.json",
+                database_path=Path(temp_dir) / "matches.sqlite3",
+            )
+            match = Match(match_id="match-1", score="0-0", total="3.5")
+
+            self.assertFalse(analyzer._append_match(Match()))
+            self.assertTrue(analyzer._append_match(match))
+            self.assertFalse(analyzer._append_match(match))
+            self.assertEqual(len(analyzer.histories["match-1"]), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -4,7 +4,16 @@ from decimal import Decimal
 from unittest.mock import patch
 
 from strategy import (
+    _entry_time,
+    _find_cumulative_movement,
+    _has_excluded_anchor_match_time,
+    _is_valid_anchor,
+    _market_handicap,
+    _market_total,
+    _match_score,
+    _match_team,
     _normalize_handicap,
+    _redcard_count,
     find_ah_signal,
     find_over_signal,
 )
@@ -217,6 +226,49 @@ class OverStrategyTests(unittest.TestCase):
         self.assertIsNone(
             find_over_signal("match-1", [malformed_total, malformed_time])
         )
+
+    def test_ignores_invalid_redcard_values_and_non_dictionary_history_items(self):
+        start = datetime(2026, 10, 22, 12, 0)
+        current = self._entry(start, "3.5")
+        invalid_redcard = self._entry(
+            start + timedelta(minutes=1), "3.75", redcards="unknown"
+        )
+        anchor = self._entry(start + timedelta(minutes=2), "4")
+
+        signal = find_over_signal(
+            "match-1", [current, None, invalid_redcard, anchor]
+        )
+
+        self.assertIsNotNone(signal)
+        self.assertIs(signal["current"], current)
+
+    def test_redcard_alias_and_non_finite_count_are_handled(self):
+        start = datetime(2026, 10, 22, 12, 0)
+        current = self._entry(start, "3.5")
+        redcard = self._entry(
+            start + timedelta(minutes=1), "3.75"
+        )
+        redcard["match_data"].pop("redcards")
+        redcard["match_data"]["redcard"] = 1
+        anchor = self._entry(start + timedelta(minutes=2), "4")
+
+        self.assertIsNone(find_over_signal("match-1", [current, redcard, anchor]))
+
+        redcard["match_data"]["redcard"] = "NaN"
+        self.assertIsNotNone(
+            find_over_signal("match-1", [current, redcard, anchor])
+        )
+
+    def test_rejects_mixed_timezone_and_out_of_order_observations(self):
+        start = datetime(2026, 10, 22, 12, 0)
+        current = self._entry(start, "3.5")
+        anchor = self._entry(start + timedelta(minutes=1), "4")
+        current["observed_at"] = start.isoformat() + "+00:00"
+        self.assertIsNone(find_over_signal("match-1", [current, anchor]))
+
+        current = self._entry(start + timedelta(minutes=2), "3.5")
+        anchor = self._entry(start + timedelta(minutes=1), "4")
+        self.assertIsNone(find_over_signal("match-1", [current, anchor]))
 
 
 class AHStrategyTests(unittest.TestCase):
@@ -478,6 +530,135 @@ class AHStrategyTests(unittest.TestCase):
 
         self.assertIsNone(
             find_ah_signal("match-1", [malformed_handicap, malformed_time])
+        )
+
+    def test_returns_none_when_anchor_has_no_matching_team(self):
+        start = datetime(2026, 10, 22, 12, 0)
+        current = self._entry(start, "1")
+        middle = self._entry(start + timedelta(seconds=30), "1.25")
+        anchor = self._entry(
+            start + timedelta(minutes=1),
+            "1.5",
+            home_team=" ",
+        )
+
+        self.assertIsNone(
+            find_ah_signal("match-1", [current, middle, anchor])
+        )
+
+    def test_redcard_alias_rejects_anchor_and_invalid_latest_anchor_is_skipped(self):
+        start = datetime(2026, 10, 22, 12, 0)
+        current = self._entry(start, "-1")
+        middle = self._entry(start + timedelta(seconds=30), "-1.25")
+        anchor = self._entry(start + timedelta(minutes=1), "-1.5")
+        redcard = self._entry(start + timedelta(minutes=2), "-1.75")
+        redcard["match_data"].pop("redcards")
+        redcard["match_data"]["redcard"] = "1"
+        self.assertIsNone(
+            find_ah_signal("match-1", [current, middle, anchor, redcard])
+        )
+
+        redcard["match_data"]["redcard"] = "not-a-count"
+        redcard["market_data"]["ah"]["handicap"] = "Closed"
+        signal = find_ah_signal(
+            "match-1", [current, middle, anchor, redcard]
+        )
+        self.assertIsNotNone(signal)
+        self.assertIs(signal["anchor"], anchor)
+
+    def test_empty_history_has_no_signal(self):
+        self.assertIsNone(find_ah_signal("match-1", []))
+
+
+class StrategyInputValidationTests(unittest.TestCase):
+    def test_malformed_timestamps_and_market_records_are_rejected(self):
+        self.assertIsNone(_entry_time({"observed_at": None}))
+        self.assertIsNone(_entry_time({"observed_at": 123}))
+        self.assertIsNone(_entry_time({"observed_at": "not-a-time"}))
+        self.assertIsNone(_market_total({"market_data": []}))
+        self.assertIsNone(
+            _market_total({"market_data": {"over": []}})
+        )
+        self.assertIsNone(_market_handicap({"market_data": []}))
+        self.assertIsNone(
+            _market_handicap({"market_data": {"ah": []}})
+        )
+
+    def test_malformed_match_fields_do_not_create_scores_or_redcards(self):
+        self.assertEqual(_match_score({"match_data": []}), "")
+        self.assertEqual(
+            _match_score({"match_data": {"score": 1}}),
+            "",
+        )
+        self.assertFalse(_has_excluded_anchor_match_time({}))
+        self.assertFalse(
+            _has_excluded_anchor_match_time(
+                {"match_data": {"match_time": 45}}
+            )
+        )
+        self.assertIsNone(_redcard_count({"match_data": []}))
+        self.assertIsNone(_redcard_count({"match_data": {}}))
+        self.assertIsNone(
+            _redcard_count(
+                {"match_data": {"redcards": "not-a-count"}}
+            )
+        )
+        self.assertIsNone(
+            _redcard_count(
+                {"match_data": {"redcards": "Infinity"}}
+            )
+        )
+        self.assertEqual(
+            _redcard_count({"match_data": {"redcard": "2"}}),
+            Decimal("2"),
+        )
+
+    def test_anchor_validation_skips_non_dictionary_history_entries(self):
+        anchor_time = datetime(2026, 10, 22, 12, 0)
+        anchor = {"match_data": {"match_time": "45"}}
+
+        self.assertTrue(
+            _is_valid_anchor(
+                [None, "invalid", {"match_data": {}}],
+                anchor,
+                anchor_time,
+            )
+        )
+
+    def test_cumulative_search_stops_at_matching_score_with_invalid_time(self):
+        history = [
+            {
+                "observed_at": "invalid",
+                "match_data": {"score": "0-0"},
+                "market_data": {},
+            },
+            {
+                "observed_at": "2026-10-22 12:01:00",
+                "match_data": {"score": "0-0"},
+                "market_data": {},
+            },
+        ]
+
+        result = _find_cumulative_movement(
+            history,
+            anchor_index=1,
+            anchor_value=Decimal("4"),
+            anchor_time=datetime(2026, 10, 22, 12, 1),
+            anchor_score="0-0",
+            value_for_entry=lambda _entry: Decimal("4"),
+            movement_for_step=lambda older, newer, _anchor: newer - older,
+        )
+
+        self.assertIsNone(result)
+
+    def test_malformed_team_data_returns_empty_team_name(self):
+        self.assertEqual(_match_team({"match_data": []}, "home_team"), "")
+        self.assertEqual(
+            _match_team(
+                {"match_data": {"home_team": 1}},
+                "home_team",
+            ),
+            "",
         )
 
 

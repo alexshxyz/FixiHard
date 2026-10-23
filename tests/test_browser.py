@@ -16,12 +16,19 @@ class BrowserFunctionTests(unittest.TestCase):
         expected_browser = Mock()
         playwright.chromium.launch.return_value = expected_browser
 
-        with patch("browser.config.HEADLESS", False):
+        with (
+            patch("browser.config.HEADLESS", False),
+            patch(
+                "browser.config.BROWSER_PROXY_SERVER",
+                "socks5://proxy.test:1080",
+            ),
+        ):
             result = browser.launch_browser(playwright)
 
         self.assertIs(result, expected_browser)
         playwright.chromium.launch.assert_called_once_with(
             headless=False,
+            proxy={"server": "socks5://proxy.test:1080"},
             args=[
                 "--disable-gpu",
                 "--disable-dev-shm-usage",
@@ -44,9 +51,29 @@ class BrowserFunctionTests(unittest.TestCase):
         playwright = Mock()
         playwright.chromium.launch.side_effect = RuntimeError("launch failed")
 
-        with self.assertRaisesRegex(RuntimeError, "launch failed"):
+        with (
+            patch(
+                "browser.config.BROWSER_PROXY_SERVER",
+                "socks5://proxy.test:1080",
+            ),
+            self.assertRaisesRegex(RuntimeError, "launch failed"),
+        ):
             browser.launch_browser(playwright)
 
+        self.logger.info.assert_not_called()
+
+    def test_launch_browser_requires_configured_proxy(self):
+        playwright = Mock()
+
+        with (
+            patch("browser.config.BROWSER_PROXY_SERVER", None),
+            self.assertRaisesRegex(
+                RuntimeError, "BROWSER_PROXY_SERVER is not configured"
+            ),
+        ):
+            browser.launch_browser(playwright)
+
+        playwright.chromium.launch.assert_not_called()
         self.logger.info.assert_not_called()
 
     def test_create_page_configures_context_and_returns_context_and_page(self):

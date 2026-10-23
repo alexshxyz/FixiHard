@@ -1,6 +1,7 @@
 import unittest
+from unittest.mock import patch
 
-from signal_formatter import format_signal
+from signal_formatter import format_signal, format_signal_details
 
 
 class SignalFormatterTests(unittest.TestCase):
@@ -129,6 +130,80 @@ class SignalFormatterTests(unittest.TestCase):
     def test_rejects_unsupported_strategy(self):
         with self.assertRaisesRegex(ValueError, "Unsupported signal strategy"):
             format_signal("unknown", self.signal)
+
+    def test_preserves_unparseable_total_and_logs_warning(self):
+        self.signal["anchor"]["market_data"]["over"]["total"] = "unknown"
+
+        with patch("signal_formatter.logger") as logger_mock:
+            message, prediction = format_signal_details("over", self.signal)
+
+        self.assertTrue(message.endswith("Тотал больше unknown"))
+        self.assertEqual(prediction, "Тотал больше unknown")
+        logger_mock.warning.assert_called_once()
+
+    def test_preserves_unparseable_and_non_finite_handicaps(self):
+        for handicap in ("unknown", "Infinity"):
+            with self.subTest(handicap=handicap):
+                self.signal["anchor"]["market_data"]["ah"]["handicap"] = (
+                    handicap
+                )
+                with patch("signal_formatter.logger") as logger_mock:
+                    message = format_signal("ah", self.signal)
+
+                self.assertTrue(message.endswith(f"Фора 1 {handicap}"))
+                logger_mock.warning.assert_called_once()
+
+    def test_rejects_missing_anchor_details_and_market_values(self):
+        for signal, strategy, expected in (
+            ({}, "over", "anchor record"),
+            ({"anchor": {"match_data": []}}, "over", "match or market"),
+            (
+                {
+                    "anchor": {
+                        "match_data": self.signal["anchor"]["match_data"],
+                        "market_data": {},
+                    }
+                },
+                "over",
+                "missing total",
+            ),
+            (
+                {
+                    "anchor": {
+                        "match_data": self.signal["anchor"]["match_data"],
+                        "market_data": {},
+                    },
+                    "team": "Tatran Presov",
+                },
+                "ah",
+                "missing handicap",
+            ),
+        ):
+            with self.subTest(strategy=strategy, expected=expected):
+                with self.assertRaisesRegex(ValueError, expected):
+                    format_signal(strategy, signal)
+
+    def test_rejects_empty_required_match_details(self):
+        self.signal["anchor"]["match_data"]["league"] = ""
+
+        with self.assertRaisesRegex(ValueError, "required match details"):
+            format_signal("over", self.signal)
+
+    def test_rejects_handicap_for_a_team_not_in_the_match(self):
+        self.signal["team"] = "Unknown team"
+
+        with self.assertRaisesRegex(ValueError, "does not match"):
+            format_signal("ah", self.signal)
+
+    def test_encodes_match_id_in_url_and_accepts_colon_score(self):
+        self.signal["match_id"] = "match/one"
+        self.signal["anchor"]["match_data"]["match_id"] = "match/one"
+        self.signal["anchor"]["match_data"]["score"] = " 1 : 0 "
+
+        message = format_signal("over", self.signal)
+
+        self.assertIn("/oddscomp/match%2Fone", message)
+        self.assertIn("1 : 0", message)
 
 
 if __name__ == "__main__":

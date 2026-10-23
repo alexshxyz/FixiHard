@@ -1,9 +1,18 @@
+import os
+from pathlib import Path
 from decimal import Decimal
+
+from dotenv import load_dotenv
+
+
+APP_DIR = Path(__file__).resolve().parent
+load_dotenv(dotenv_path=APP_DIR / ".env")
 
 
 # Сайт и режим браузера
 SITE_URL = "https://www.goaloo.com/"
 HEADLESS = True
+BROWSER_PROXY_SERVER = os.environ.get("BROWSER_PROXY_SERVER")
 SITE_COOKIES = [
 	{"name": "goaloo_SelCompany_V2", "value": "8", "domain": "www.goaloo.com", "path": "/"},
 	{"name": "Default_TimeZone", "value": "3", "domain": "www.goaloo.com", "path": "/"},
@@ -36,6 +45,7 @@ BROWSER_ARGS = [
 LIVE_REFRESH_INTERVAL_SECONDS = (100, 120)
 PAGE_REFRESH_INTERVAL_SECONDS = 1800
 MAIN_LOOP_WAIT_SECONDS = 1
+RESTART_HOURS = 24
 
 
 # Ожидания браузера и загрузки данных (секунды)
@@ -61,7 +71,7 @@ TELEGRAM_RETRY_DELAY_SECONDS = 3
 TELEGRAM_REQUEST_TIMEOUT_SECONDS = 15
 
 # Общие параметры стратегий
-DEBUG_MODE = 1
+DEBUG_MODE = 0
 GOAL_MARKET_CLOSE_MINUTES = 1
 REDCARD_WINDOW_MINUTES = 20
 MAX_OBSERVATION_INTERVAL_MINUTES = 5

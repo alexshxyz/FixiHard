@@ -5,8 +5,12 @@ from timing import seconds_to_milliseconds, wait_for_seconds
 
 # Запускает Chromium с настройками проекта.
 def launch_browser(p):
+    if not config.BROWSER_PROXY_SERVER:
+        raise RuntimeError("BROWSER_PROXY_SERVER is not configured")
+
     browser = p.chromium.launch(
         headless=config.HEADLESS,
+        proxy={"server": config.BROWSER_PROXY_SERVER},
         args=list(config.BROWSER_ARGS),
     )
     logger.info("Bot started successfully!")

@@ -124,6 +124,8 @@ def _is_valid_anchor(
 		observed_at = _entry_time(entry)
 		if observed_at is None:
 			continue
+		if (anchor_time.tzinfo is None) != (observed_at.tzinfo is None):
+			continue
 		if not redcard_cutoff <= observed_at <= anchor_time:
 			continue
 		redcards = _redcard_count(entry)
