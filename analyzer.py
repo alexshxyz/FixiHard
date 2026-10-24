@@ -136,21 +136,35 @@ class MatchAnalyzer:
 		if not _is_valid_saved_state(saved_state):
 			raise ValueError("saved state has an invalid structure")
 
-		current_match_ids = {
-			match.match_id for match in matches if match.match_id
+		current_matches = {
+			match.match_id: match for match in matches if match.match_id
 		}
+		saved_match_ids = set(saved_state["active_match_ids"])
+		current_match_ids = set(current_matches)
+		synchronized_match_ids = saved_match_ids & current_match_ids
+		new_match_ids = [
+			match_id
+			for match_id in current_matches
+			if match_id not in saved_match_ids
+		]
+		removed_match_ids = [
+			match_id
+			for match_id in saved_state["active_match_ids"]
+			if match_id not in current_match_ids
+		]
+
 		self.histories.update(
 			{
-				match_id: deepcopy(history)
-				for match_id, history in saved_state["histories"].items()
-				if match_id in current_match_ids
+				match_id: deepcopy(saved_state["histories"][match_id])
+				for match_id in current_matches
+				if match_id in synchronized_match_ids
 			}
 		)
 		self.copy_histories.update(
 			{
-				match_id: deepcopy(history)
-				for match_id, history in saved_state["copy_histories"].items()
-				if match_id in current_match_ids
+				match_id: deepcopy(saved_state["copy_histories"][match_id])
+				for match_id in current_matches
+				if match_id in synchronized_match_ids
 			}
 		)
 		self._closed_markets_until.update(
@@ -163,8 +177,19 @@ class MatchAnalyzer:
 			}
 		)
 
-		for match in matches:
+		for match in current_matches.values():
 			self._append_match(match)
+
+		logger.info(
+			"Matches synchronized: Active %d (%s) New %d (%s) "
+			"Removed %d (%s)",
+			len(self.histories),
+			", ".join(self.histories) or "-",
+			len(new_match_ids),
+			", ".join(new_match_ids) or "-",
+			len(removed_match_ids),
+			", ".join(removed_match_ids) or "-",
+		)
 
 	# Сохраняет историю матчей, чтобы продолжить анализ после перезапуска.
 	def save_state(self, path: str | Path | None = None) -> bool:

@@ -2,7 +2,7 @@ import unittest
 import json
 import sqlite3
 from contextlib import closing
-from datetime import datetime
+from datetime import datetime, timedelta
 from tempfile import TemporaryDirectory
 from pathlib import Path
 from unittest.mock import Mock, call, patch
@@ -603,6 +603,9 @@ class MatchAnalyzerTests(unittest.TestCase):
             original.record_updates(
                 [Match(match_id="active", score="0-0", total="3.75")]
             )
+            active_deadline = datetime.now() + timedelta(minutes=1)
+            original._closed_markets_until["active"] = active_deadline
+            original._closed_markets_until["finished"] = active_deadline
 
             self.assertTrue(original.save_state(state_path))
             saved_state = load_state_from_json(state_path)
@@ -630,7 +633,18 @@ class MatchAnalyzerTests(unittest.TestCase):
             )
             self.assertEqual(len(restarted.copy_histories["active"]), 3)
             self.assertNotIn("finished", restarted.histories)
+            self.assertNotIn("finished", restarted.copy_histories)
+            self.assertNotIn("finished", restarted._closed_markets_until)
+            self.assertEqual(
+                restarted._closed_markets_until["active"],
+                active_deadline,
+            )
             self.assertEqual(len(restarted.histories["new"]), 1)
+            self.assertEqual(
+                set(restarted.histories),
+                set(restarted.copy_histories),
+            )
+            self.assertEqual(set(restarted.histories), {"active", "new"})
 
     def test_restore_keeps_an_unchanged_snapshot_and_expired_market_deadline(self):
         with TemporaryDirectory() as temp_dir:
