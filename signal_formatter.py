@@ -83,7 +83,11 @@ def _parse_score(score: str) -> tuple[int, int] | None:
 
 
 # Формирует текст сообщения и prediction по данным сигнала.
-def _format_signal_parts(strategy: str, signal: dict) -> tuple[str, str]:
+def _format_signal_parts(
+	strategy: str,
+	signal: dict,
+	latest_match_time: str | None = None,
+) -> tuple[str, str]:
 	anchor = signal.get("anchor")
 	if not isinstance(anchor, dict):
 		raise ValueError("Signal is missing its anchor record")
@@ -94,7 +98,11 @@ def _format_signal_parts(strategy: str, signal: dict) -> tuple[str, str]:
 
 	match_id = str(match_data.get("match_id", signal.get("match_id", "")))
 	league = str(match_data.get("league", ""))
-	match_time = str(match_data.get("match_time", ""))
+	match_time = str(
+		match_data.get("match_time", "")
+		if latest_match_time is None
+		else latest_match_time
+	)
 	home_team = str(match_data.get("home_team", ""))
 	away_team = str(match_data.get("away_team", ""))
 	score = str(match_data.get("score", ""))
@@ -190,8 +198,12 @@ def _format_signal_parts(strategy: str, signal: dict) -> tuple[str, str]:
 
 
 # Возвращает сообщение Telegram и исход для сохранения в базе.
-def format_signal_details(strategy: str, signal: dict) -> tuple[str, str]:
-	return _format_signal_parts(strategy, signal)
+def format_signal_details(
+	strategy: str,
+	signal: dict,
+	latest_match_time: str | None = None,
+) -> tuple[str, str]:
+	return _format_signal_parts(strategy, signal, latest_match_time)
 
 
 # Формирует HTML-сообщение Telegram по сигналу.

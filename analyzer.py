@@ -230,7 +230,18 @@ class MatchAnalyzer:
 	# Сохраняет отправляемый сигнал с данными матча.
 	def _save_signal(self, strategy: str, signal: dict) -> str | None:
 		match_data = signal["anchor"]["match_data"]
-		telegram_message, prediction = format_signal_details(strategy, signal)
+		match_id = str(match_data.get("match_id", signal.get("match_id", "")))
+		history = self.copy_histories.get(match_id, [])
+		latest_match_time = None
+		if history:
+			latest_match_data = history[-1].get("match_data")
+			if isinstance(latest_match_data, dict):
+				latest_match_time = latest_match_data.get("match_time")
+		telegram_message, prediction = format_signal_details(
+			strategy,
+			signal,
+			latest_match_time=latest_match_time,
+		)
 		record = (
 			date.today().isoformat(),
 			str(match_data.get("league", "")),
@@ -239,7 +250,7 @@ class MatchAnalyzer:
 			prediction,
 			"",
 			"",
-			str(match_data.get("match_id", signal.get("match_id", ""))),
+			match_id,
 			strategy,
 			config.SIGNAL_SOURCE,
 		)

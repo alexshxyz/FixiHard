@@ -12,6 +12,46 @@ from models import Match
 
 
 class MatchAnalyzerTests(unittest.TestCase):
+    def test_signal_uses_latest_observed_match_time(self):
+        with TemporaryDirectory() as temp_dir:
+            analyzer = MatchAnalyzer(
+                history_path=Path(temp_dir) / "matches_history.json",
+                database_path=Path(temp_dir) / "matches.sqlite3",
+            )
+            analyzer.initialize(
+                [
+                    Match(
+                        match_id="match-1",
+                        league="Test League",
+                        home_team="Home",
+                        away_team="Away",
+                        match_time="23",
+                        score="1-0",
+                        total="3.5",
+                    )
+                ]
+            )
+            signal = {
+                "match_id": "match-1",
+                "anchor": {
+                    "match_data": {
+                        "match_id": "match-1",
+                        "league": "Test League",
+                        "home_team": "Home",
+                        "away_team": "Away",
+                        "match_time": "12",
+                        "score": "1-0",
+                    },
+                    "market_data": {"over": {"total": "3.5"}},
+                },
+            }
+
+            message = analyzer._save_signal("over", signal)
+
+            self.assertIsNotNone(message)
+            self.assertIn("⚡ 23’", message)
+            self.assertNotIn("⚡ 12’", message)
+
     def test_saves_signal_before_sending_telegram_notification(self):
         with TemporaryDirectory() as temp_dir:
             history_path = Path(temp_dir) / "matches_history.json"

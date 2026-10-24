@@ -36,6 +36,16 @@ class SignalFormatterTests(unittest.TestCase):
             "Тотал больше 1.5",
         )
 
+    def test_formats_with_latest_match_time_when_provided(self):
+        message, _ = format_signal_details(
+            "over",
+            self.signal,
+            latest_match_time="45",
+        )
+
+        self.assertIn("⚡ 45’", message)
+        self.assertNotIn("⚡ 40’", message)
+
     def test_rounds_quarter_over_total_up(self):
         for total, expected in (("3.25", "3.5"), ("3.75", "4")):
             with self.subTest(total=total):
