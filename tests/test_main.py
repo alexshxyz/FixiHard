@@ -3,6 +3,7 @@ import unittest
 from unittest.mock import Mock, call, patch
 
 import main
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from timing import seconds_to_milliseconds
 
 
@@ -126,6 +127,49 @@ class MainTests(unittest.TestCase):
         self.playwright.stop.assert_called_once_with()
         self._assert_handlers_restored()
         self.logger.info.assert_any_call("Shutdown requested")
+
+    def test_initial_scrape_waits_and_reloads_after_missing_match_rows(self):
+        self.scrape_matches.side_effect = [
+            PlaywrightTimeoutError("no match rows"),
+            self.matches,
+        ]
+
+        with (
+            patch("main._wait_for_matches") as wait_for_matches,
+            patch("main._refresh_page_until_odds") as refresh_until_ready,
+        ):
+            result = main._scrape_initial_matches_until_ready(
+                self.page,
+                restart_deadline=100,
+            )
+
+        self.assertIs(result, self.matches)
+        wait_for_matches.assert_called_once_with(self.page, 100)
+        refresh_until_ready.assert_called_once_with(
+            self.page,
+            100,
+            reattach_watch=False,
+        )
+
+    def test_browser_startup_retries_page_load_errors(self):
+        self.start_browser.side_effect = [
+            RuntimeError("page load failed"),
+            (self.playwright, self.browser, Mock(), self.page),
+        ]
+
+        with patch("main.time.sleep") as sleep:
+            result = main._start_browser_with_retries()
+
+        self.assertIs(result[0], self.playwright)
+        self.assertIs(result[1], self.browser)
+        self.assertIs(result[3], self.page)
+        self.assertEqual(self.start_browser.call_count, 2)
+        sleep.assert_called_once_with(main.config.PAGE_REFRESH_RETRY_SECONDS)
+        self.logger.exception.assert_called_once_with(
+            "Browser startup failed (attempt %d/%d)",
+            1,
+            main.config.REFRESH_RETRY_ATTEMPTS,
+        )
 
     def test_main_reloads_page_and_reattaches_live_watch_at_deadline(self):
         self.page.wait_for_timeout.side_effect = self._shutdown_after_second_wait
@@ -431,11 +475,25 @@ class MainTests(unittest.TestCase):
     def test_main_restores_handlers_when_browser_startup_fails(self):
         self.start_browser.side_effect = RuntimeError("startup failed")
 
-        with self.assertRaisesRegex(RuntimeError, "startup failed"):
+        with (
+            patch("main.time.sleep") as sleep,
+            self.assertRaisesRegex(
+                main.ScriptRestartRequested,
+                "Browser startup failed after all retries",
+            ),
+        ):
             main.main()
 
         self.browser.close.assert_not_called()
         self.playwright.stop.assert_not_called()
+        self.assertEqual(
+            self.start_browser.call_count,
+            main.config.REFRESH_RETRY_ATTEMPTS,
+        )
+        self.assertEqual(
+            sleep.call_count,
+            main.config.REFRESH_RETRY_ATTEMPTS - 1,
+        )
         self._assert_handlers_restored()
 
 

@@ -11,6 +11,7 @@ import config
 from browser import refresh_live_table, refresh_page, start_browser
 from logger import logger
 from notifier import TelegramNotifier
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from scraper import (
     _log_matches_updated,
     reattach_live_watch,
@@ -66,8 +67,10 @@ def _refresh_live_table_with_retries(page):
     return None
 
 
-# Перезагружает страницу до появления актуальных коэффициентов.
-def _refresh_page_until_odds(page, restart_deadline=None):
+# Перезагружает страницу до появления коэффициентов.
+def _refresh_page_until_odds(
+    page, restart_deadline=None, reattach_watch=True
+):
     failed_attempts = 0
     while True:
         try:
@@ -87,11 +90,48 @@ def _refresh_page_until_odds(page, restart_deadline=None):
             continue
 
         if refreshed:
-            reattach_live_watch(page)
+            if reattach_watch:
+                reattach_live_watch(page)
             return
 
         failed_attempts = 0
         _wait_for_matches(page, restart_deadline)
+
+
+# Повторяет запуск браузера при ошибке загрузки страницы.
+def _start_browser_with_retries():
+    for attempt in range(1, config.REFRESH_RETRY_ATTEMPTS + 1):
+        try:
+            return start_browser()
+        except Exception:
+            logger.exception(
+                "Browser startup failed (attempt %d/%d)",
+                attempt,
+                config.REFRESH_RETRY_ATTEMPTS,
+            )
+            if attempt < config.REFRESH_RETRY_ATTEMPTS:
+                time.sleep(config.PAGE_REFRESH_RETRY_SECONDS)
+    raise ScriptRestartRequested(
+        "Browser startup failed after all retries"
+    )
+
+
+# Ждёт матчи при пустом стартовом списке и повторно загружает страницу.
+def _scrape_initial_matches_until_ready(page, restart_deadline=None):
+    while True:
+        try:
+            return scrape_matches(page)
+        except PlaywrightTimeoutError:
+            logger.warning(
+                "Initial match data is not ready. Waiting before reloading "
+                "the page."
+            )
+            _wait_for_matches(page, restart_deadline)
+            _refresh_page_until_odds(
+                page,
+                restart_deadline,
+                reattach_watch=False,
+            )
 
 
 # Помечает запрос на штатное завершение бота.
@@ -171,8 +211,11 @@ def main(restart_deadline=None):
     }
     try:
         notifier = TelegramNotifier.from_environment()
-        playwright, browser, _, page = start_browser()
-        initial_matches = scrape_matches(page)
+        playwright, browser, _, page = _start_browser_with_retries()
+        initial_matches = _scrape_initial_matches_until_ready(
+            page,
+            restart_deadline,
+        )
         analyzer = MatchAnalyzer(notifier=notifier)
         analyzer.initialize(initial_matches)
 

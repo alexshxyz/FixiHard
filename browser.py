@@ -46,8 +46,7 @@ def select_live_tab(page):
     live_tab = page.locator("#li_FilterLive")
     live_tab.wait_for(state="visible")
     live_tab.click()
-    page.wait_for_selector(
-        "#table_live tr.tds",
+    page.locator("table#table_live").wait_for(
         state="attached",
         timeout=seconds_to_milliseconds(config.TABLE_TIMEOUT_SECONDS),
     )

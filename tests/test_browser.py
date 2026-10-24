@@ -153,15 +153,21 @@ class BrowserFunctionTests(unittest.TestCase):
 
         browser.select_live_tab(page)
 
-        page.locator.assert_called_once_with("#li_FilterLive")
-        page.locator.return_value.wait_for.assert_called_once_with(state="visible")
+        self.assertEqual(
+            page.locator.call_args_list,
+            [call("#li_FilterLive"), call("table#table_live")],
+        )
         page.locator.return_value.click.assert_called_once_with()
-        page.wait_for_selector.assert_called_once_with(
-            "#table_live tr.tds",
-            state="attached",
-            timeout=seconds_to_milliseconds(
-                browser.config.TABLE_TIMEOUT_SECONDS
-            ),
+        page.locator.return_value.wait_for.assert_has_calls(
+            [
+                call(state="visible"),
+                call(
+                    state="attached",
+                    timeout=seconds_to_milliseconds(
+                        browser.config.TABLE_TIMEOUT_SECONDS
+                    ),
+                ),
+            ]
         )
         page.wait_for_timeout.assert_called_once_with(
             seconds_to_milliseconds(browser.config.POST_REFRESH_WAIT_SECONDS)
@@ -177,17 +183,20 @@ class BrowserFunctionTests(unittest.TestCase):
             browser.select_live_tab(page)
 
         page.locator.return_value.click.assert_not_called()
-        page.wait_for_selector.assert_not_called()
+        page.locator.assert_called_once_with("#li_FilterLive")
         page.wait_for_timeout.assert_not_called()
 
     def test_select_live_tab_propagates_missing_table_error_without_final_wait(self):
         page = Mock()
-        page.wait_for_selector.side_effect = TimeoutError("table did not appear")
+        live_tab = Mock()
+        table = Mock()
+        table.wait_for.side_effect = TimeoutError("table did not appear")
+        page.locator.side_effect = [live_tab, table]
 
         with self.assertRaisesRegex(TimeoutError, "table did not appear"):
             browser.select_live_tab(page)
 
-        page.locator.return_value.click.assert_called_once_with()
+        live_tab.click.assert_called_once_with()
         page.wait_for_timeout.assert_not_called()
 
     def test_refresh_live_table_checks_odds_after_click(self):
