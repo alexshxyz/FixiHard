@@ -7,7 +7,7 @@ from tempfile import TemporaryDirectory
 from pathlib import Path
 from unittest.mock import Mock, call, patch
 
-from analyzer import MatchAnalyzer
+from analyzer import MatchAnalyzer, load_state_from_json
 from models import Match
 
 
@@ -588,6 +588,174 @@ class MatchAnalyzerTests(unittest.TestCase):
             self.assertTrue(analyzer._append_match(match))
             self.assertFalse(analyzer._append_match(match))
             self.assertEqual(len(analyzer.histories["match-1"]), 1)
+
+    def test_state_round_trip_continues_only_current_match_histories(self):
+        with TemporaryDirectory() as temp_dir:
+            state_path = Path(temp_dir) / "match_state.json"
+            database_path = Path(temp_dir) / "matches.sqlite3"
+            original = MatchAnalyzer(database_path=database_path)
+            original.initialize(
+                [
+                    Match(match_id="active", score="0-0", total="3.5"),
+                    Match(match_id="finished", score="1-0", total="2.5"),
+                ]
+            )
+            original.record_updates(
+                [Match(match_id="active", score="0-0", total="3.75")]
+            )
+
+            self.assertTrue(original.save_state(state_path))
+            saved_state = load_state_from_json(state_path)
+
+            self.assertIsNotNone(saved_state)
+            self.assertFalse(state_path.exists())
+            restarted = MatchAnalyzer(database_path=database_path)
+            with patch.object(restarted, "_analyze_match"):
+                restarted.initialize(
+                    [
+                        Match(
+                            match_id="active",
+                            score="0-0",
+                            total="4",
+                        ),
+                        Match(match_id="new", score="0-0", total="1"),
+                    ],
+                    saved_state=saved_state,
+                )
+
+            self.assertEqual(
+                [entry["market_data"]["over"]["total"]
+                 for entry in restarted.histories["active"]],
+                ["3.5", "3.75", "4"],
+            )
+            self.assertEqual(len(restarted.copy_histories["active"]), 3)
+            self.assertNotIn("finished", restarted.histories)
+            self.assertEqual(len(restarted.histories["new"]), 1)
+
+    def test_restore_keeps_an_unchanged_snapshot_and_expired_market_deadline(self):
+        with TemporaryDirectory() as temp_dir:
+            state_path = Path(temp_dir) / "match_state.json"
+            database_path = Path(temp_dir) / "matches.sqlite3"
+            match = Match(match_id="match-1", score="1-0", total="3.5")
+            original = MatchAnalyzer(database_path=database_path)
+            with patch.object(original, "_analyze_match"):
+                original.initialize([match])
+            expired_deadline = datetime(2026, 10, 23, 12, 0)
+            original._closed_markets_until["match-1"] = expired_deadline
+            self.assertTrue(original.save_state(state_path))
+            saved_state = load_state_from_json(state_path)
+
+            restarted = MatchAnalyzer(database_path=database_path)
+            with patch.object(restarted, "_analyze_match"):
+                restarted.initialize([match], saved_state=saved_state)
+
+            self.assertEqual(len(restarted.histories["match-1"]), 1)
+            self.assertEqual(
+                restarted._closed_markets_until["match-1"],
+                expired_deadline,
+            )
+
+    def test_empty_state_round_trip_is_supported(self):
+        with TemporaryDirectory() as temp_dir:
+            state_path = Path(temp_dir) / "match_state.json"
+            analyzer = MatchAnalyzer(
+                database_path=Path(temp_dir) / "matches.sqlite3"
+            )
+
+            self.assertTrue(analyzer.save_state(state_path))
+            saved_state = load_state_from_json(state_path)
+
+            self.assertEqual(
+                saved_state,
+                {
+                    "active_match_ids": [],
+                    "histories": {},
+                    "copy_histories": {},
+                    "closed_markets_until": {},
+                },
+            )
+            with patch.object(analyzer, "_analyze_match") as analyze_match:
+                analyzer.initialize([], saved_state=saved_state)
+            analyze_match.assert_not_called()
+            self.assertEqual(analyzer.histories, {})
+
+    def test_load_state_returns_none_for_missing_file(self):
+        with TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "missing.json"
+
+            self.assertIsNone(load_state_from_json(path))
+
+    def test_load_state_leaves_invalid_json_for_inspection(self):
+        with TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "state.json"
+            path.write_text("{invalid", encoding="utf-8")
+            with patch("analyzer.logger") as logger_mock:
+                self.assertIsNone(load_state_from_json(path))
+
+            self.assertTrue(path.exists())
+            logger_mock.error.assert_called_once()
+
+    def test_load_state_leaves_invalid_structure_for_inspection(self):
+        with TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "state.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "active_match_ids": ["match-1"],
+                        "histories": {"match-1": [{"broken": True}]},
+                        "copy_histories": {"match-1": []},
+                        "closed_markets_until": {},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with patch("analyzer.logger") as logger_mock:
+                self.assertIsNone(load_state_from_json(path))
+
+            self.assertTrue(path.exists())
+            logger_mock.error.assert_called_once()
+
+    def test_load_state_preserves_file_when_removal_fails(self):
+        with TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "state.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "active_match_ids": [],
+                        "histories": {},
+                        "copy_histories": {},
+                        "closed_markets_until": {},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with (
+                patch.object(Path, "unlink", side_effect=OSError("denied")),
+                patch("analyzer.logger") as logger_mock,
+            ):
+                self.assertIsNone(load_state_from_json(path))
+
+            self.assertTrue(path.exists())
+            logger_mock.error.assert_called_once()
+
+    def test_save_state_reports_write_failure(self):
+        with TemporaryDirectory() as temp_dir:
+            analyzer = MatchAnalyzer(
+                database_path=Path(temp_dir) / "matches.sqlite3"
+            )
+            with (
+                patch.object(
+                    Path,
+                    "write_text",
+                    side_effect=OSError("permission denied"),
+                ),
+                patch("analyzer.logger") as logger_mock,
+            ):
+                self.assertFalse(
+                    analyzer.save_state(Path(temp_dir) / "state.json")
+                )
+
+            logger_mock.error.assert_called_once()
 
 
 if __name__ == "__main__":

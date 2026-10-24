@@ -29,6 +29,7 @@ class MainTests(unittest.TestCase):
                 self.playwright, self.browser, Mock(), self.page
             )),
             patch("main.scrape_matches", return_value=self.matches),
+            patch("main.load_state_from_json", return_value=None),
             patch("main.MatchAnalyzer", return_value=self.analyzer),
             patch("main.start_live_watch", return_value=self.live_watch),
             patch("main.refresh_live_table"),
@@ -46,6 +47,7 @@ class MainTests(unittest.TestCase):
         (
             self.start_browser,
             self.scrape_matches,
+            self.load_state_from_json,
             self.match_analyzer,
             self.start_live_watch,
             self.refresh_live_table,
@@ -95,6 +97,8 @@ class MainTests(unittest.TestCase):
         )
 
     def test_main_processes_updates_and_refreshes_at_deadline(self):
+        saved_state = {"histories": {"restored-match": []}}
+        self.load_state_from_json.return_value = saved_state
         self.page.wait_for_timeout.side_effect = self._shutdown_after_second_wait
         self.monotonic.side_effect = [0, 0, 0, 10, 10, 10, 20, 20, 20, 20]
 
@@ -113,11 +117,16 @@ class MainTests(unittest.TestCase):
         self.scrape_matches.assert_has_calls(
             [call(self.page), call(self.page, log_odds_found=False)]
         )
-        self.analyzer.initialize.assert_called_once_with(self.matches)
+        self.load_state_from_json.assert_called_once_with()
+        self.analyzer.initialize.assert_called_once_with(
+            self.matches,
+            saved_state=saved_state,
+        )
+        self.analyzer.save_state.assert_called_once_with()
         self.analyzer.record_updates.assert_called_once_with(self.updated_matches)
         self.analyzer.remove_matches.assert_called_once_with(self.deleted_ids)
         self.log_matches_updated.assert_called_once_with(self.updated_matches)
-        self.live_watch.process_pending.assert_has_calls([call(), call()])
+        self.live_watch.process_pending.assert_called_once_with()
         self.refresh_live_table.assert_called_once_with(self.page)
         self.live_watch.reconcile_after_refresh.assert_called_once_with(self.matches)
         self.refresh_page.assert_not_called()
@@ -127,6 +136,35 @@ class MainTests(unittest.TestCase):
         self.playwright.stop.assert_called_once_with()
         self._assert_handlers_restored()
         self.logger.info.assert_any_call("Shutdown requested")
+
+    def test_main_gracefully_stops_on_sigint_before_processing_pending(self):
+        self.page.wait_for_timeout.side_effect = (
+            lambda _timeout: self._request_shutdown(signal.SIGINT)
+        )
+
+        main.main()
+
+        self.live_watch.process_pending.assert_not_called()
+        self.analyzer.save_state.assert_called_once_with()
+        self.browser.close.assert_called_once_with()
+        self.playwright.stop.assert_called_once_with()
+        self.logger.info.assert_any_call("Shutdown requested")
+        self.logger.warning.assert_not_called()
+        self._assert_handlers_restored()
+
+    def test_sigint_at_restart_deadline_does_not_trigger_process_restart(self):
+        self.page.wait_for_timeout.side_effect = (
+            lambda _timeout: self._request_shutdown(signal.SIGINT)
+        )
+        self.monotonic.side_effect = [0, 0, 0, 1]
+
+        main.main(restart_deadline=1)
+
+        self.live_watch.process_pending.assert_not_called()
+        self.analyzer.save_state.assert_called_once_with()
+        self.browser.close.assert_called_once_with()
+        self.playwright.stop.assert_called_once_with()
+        self._assert_handlers_restored()
 
     def test_initial_scrape_waits_and_reloads_after_missing_match_rows(self):
         self.scrape_matches.side_effect = [
@@ -448,6 +486,7 @@ class MainTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "page failed"):
             main.main()
 
+        self.analyzer.save_state.assert_called_once_with()
         self.browser.close.assert_called_once_with()
         self.playwright.stop.assert_called_once_with()
         self._assert_handlers_restored()

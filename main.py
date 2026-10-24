@@ -6,7 +6,7 @@ import threading
 import time
 from functools import partial
 
-from analyzer import MatchAnalyzer
+from analyzer import MatchAnalyzer, load_state_from_json
 import config
 from browser import refresh_live_table, refresh_page, start_browser
 from logger import logger
@@ -201,6 +201,7 @@ def main(restart_deadline=None):
 
     playwright = None
     browser = None
+    analyzer = None
     shutdown_requested = threading.Event()
 
     previous_handlers = {
@@ -217,7 +218,8 @@ def main(restart_deadline=None):
             restart_deadline,
         )
         analyzer = MatchAnalyzer(notifier=notifier)
-        analyzer.initialize(initial_matches)
+        saved_state = load_state_from_json()
+        analyzer.initialize(initial_matches, saved_state=saved_state)
 
         live_watch = start_live_watch(
             page,
@@ -233,17 +235,27 @@ def main(restart_deadline=None):
         )
         while not shutdown_requested.is_set():
             now = time.monotonic()
+            if shutdown_requested.is_set():
+                break
             if now >= restart_deadline:
                 raise ScheduledRestartRequested
             wait_for_seconds(
                 page,
                 min(config.MAIN_LOOP_WAIT_SECONDS, restart_deadline - now),
             )
+            if shutdown_requested.is_set():
+                break
             if time.monotonic() >= restart_deadline:
+                if shutdown_requested.is_set():
+                    break
                 raise ScheduledRestartRequested
             live_watch.process_pending()
+            if shutdown_requested.is_set():
+                break
             now = time.monotonic()
             if now >= restart_deadline:
+                if shutdown_requested.is_set():
+                    break
                 raise ScheduledRestartRequested
             if now >= next_page_refresh_at:
                 _refresh_page_and_reconcile(
@@ -274,6 +286,9 @@ def main(restart_deadline=None):
             exc_info=True,
         )
     finally:
+        if analyzer is not None and not analyzer.save_state():
+            logger.error("Could not save analyzer state before shutdown")
+
         if shutdown_requested.is_set():
             logger.info("Shutdown requested")
 

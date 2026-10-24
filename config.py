@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 
 APP_DIR = Path(__file__).resolve().parent
 load_dotenv(dotenv_path=APP_DIR / ".env")
+STATE_SAVE_FILE = APP_DIR / "match_state.json"
 
 
 # Сайт и режим браузера

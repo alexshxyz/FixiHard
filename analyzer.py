@@ -1,6 +1,7 @@
 import json
 import sqlite3
 from contextlib import closing
+from copy import deepcopy
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -10,6 +11,69 @@ from models import Match
 from notifier import TelegramNotifier
 from signal_formatter import format_signal_details
 from strategy import find_ah_signal, find_over_signal
+
+
+def _is_valid_saved_state(state: object) -> bool:
+	if not isinstance(state, dict):
+		return False
+
+	active_match_ids = state.get("active_match_ids")
+	histories = state.get("histories")
+	copy_histories = state.get("copy_histories")
+	closed_markets_until = state.get("closed_markets_until")
+	if (
+		not isinstance(active_match_ids, list)
+		or not all(isinstance(match_id, str) for match_id in active_match_ids)
+		or not isinstance(histories, dict)
+		or not isinstance(copy_histories, dict)
+		or not isinstance(closed_markets_until, dict)
+	):
+		return False
+	if (
+		set(active_match_ids) != set(histories)
+		or set(histories) != set(copy_histories)
+	):
+		return False
+
+	for match_histories in (histories, copy_histories):
+		for match_id, entries in match_histories.items():
+			if not isinstance(match_id, str) or not isinstance(entries, list):
+				return False
+			if any(
+				not isinstance(entry, dict)
+				or not isinstance(entry.get("observed_at"), str)
+				or not isinstance(entry.get("match_data"), dict)
+				or not isinstance(entry.get("market_data"), dict)
+				for entry in entries
+			):
+				return False
+
+	for match_id, deadline in closed_markets_until.items():
+		if not isinstance(match_id, str) or not isinstance(deadline, str):
+			return False
+		try:
+			datetime.fromisoformat(deadline)
+		except ValueError:
+			return False
+
+	return True
+
+
+def load_state_from_json(path: str | Path | None = None) -> dict | None:
+	state_path = Path(path) if path is not None else config.STATE_SAVE_FILE
+	if not state_path.exists():
+		return None
+
+	try:
+		saved_state = json.loads(state_path.read_text(encoding="utf-8"))
+		if not _is_valid_saved_state(saved_state):
+			raise ValueError("saved state has an invalid structure")
+		state_path.unlink()
+		logger.info("Loaded and removed saved state file %s", state_path)
+		return saved_state
+	except (OSError, ValueError, TypeError) as error:
+		logger.error("Failed to load state from %s: %s", state_path, error)
+		return None
 
 
 class MatchAnalyzer:
@@ -43,16 +107,89 @@ class MatchAnalyzer:
 		self._initialize_signals_database()
 
 	# Создаёт историю и проверяет начальные данные матчей.
-	def initialize(self, matches: list[Match]) -> None:
+	def initialize(
+		self,
+		matches: list[Match],
+		saved_state: dict | None = None,
+	) -> None:
 		self.histories.clear()
 		self.copy_histories.clear()
 		self._closed_markets_until.clear()
-		for match in matches:
-			self._append_match(match)
+
+		if saved_state is not None:
+			self._restore_state(saved_state, matches)
+		else:
+			for match in matches:
+				self._append_match(match)
+
 		self._write_history()
 		for match in matches:
 			if match.match_id:
 				self._analyze_match(match.match_id)
+
+	# Восстанавливает историю активных матчей из сохранённого состояния.
+	def _restore_state(
+		self,
+		saved_state: dict,
+		matches: list[Match],
+	) -> None:
+		if not _is_valid_saved_state(saved_state):
+			raise ValueError("saved state has an invalid structure")
+
+		current_match_ids = {
+			match.match_id for match in matches if match.match_id
+		}
+		self.histories.update(
+			{
+				match_id: deepcopy(history)
+				for match_id, history in saved_state["histories"].items()
+				if match_id in current_match_ids
+			}
+		)
+		self.copy_histories.update(
+			{
+				match_id: deepcopy(history)
+				for match_id, history in saved_state["copy_histories"].items()
+				if match_id in current_match_ids
+			}
+		)
+		self._closed_markets_until.update(
+			{
+				match_id: datetime.fromisoformat(deadline)
+				for match_id, deadline in saved_state[
+					"closed_markets_until"
+				].items()
+				if match_id in current_match_ids
+			}
+		)
+
+		for match in matches:
+			self._append_match(match)
+
+	# Сохраняет историю матчей, чтобы продолжить анализ после перезапуска.
+	def save_state(self, path: str | Path | None = None) -> bool:
+		state_path = Path(path) if path is not None else config.STATE_SAVE_FILE
+		payload = {
+			"active_match_ids": list(self.histories),
+			"histories": self.histories,
+			"copy_histories": self.copy_histories,
+			"closed_markets_until": {
+				match_id: deadline.isoformat()
+				for match_id, deadline in self._closed_markets_until.items()
+			},
+		}
+
+		try:
+			state_path.write_text(
+				json.dumps(payload, ensure_ascii=False, indent=2),
+				encoding="utf-8",
+			)
+		except (OSError, TypeError, ValueError) as error:
+			logger.error("Failed to save state to %s: %s", state_path, error)
+			return False
+
+		logger.info("Saved state to %s", state_path)
+		return True
 
 	# Добавляет обновления матчей и анализирует изменившиеся записи.
 	def record_updates(self, matches: list[Match]) -> None:
