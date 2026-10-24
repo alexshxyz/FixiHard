@@ -12,5 +12,6 @@ matches_history.json
 matches_total.json
 matches.json
 matches_history_copy.json
+match_state.json
 matches.sqlite3
 matches.sqlite3-*
