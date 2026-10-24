@@ -85,7 +85,7 @@ class MatchAnalyzerTests(unittest.TestCase):
 
             with (
                 patch("analyzer.datetime") as datetime_mock,
-                patch("analyzer.logger"),
+                patch("analyzer.logger") as logger_mock,
             ):
                 datetime_mock.now.side_effect = [
                     start,
@@ -176,7 +176,7 @@ class MatchAnalyzerTests(unittest.TestCase):
                         Match(
                             match_id="match-1",
                             score="2-0",
-                            total="4",
+                            total="3.75",
                             over_odd="1.8",
                             under_odd="2",
                             ah_handicap="-1.5",
@@ -190,7 +190,7 @@ class MatchAnalyzerTests(unittest.TestCase):
                         Match(
                             match_id="match-1",
                             score="2-0",
-                            total="4.5",
+                            total="4",
                             over_odd="1.8",
                             under_odd="2",
                             ah_handicap="-1.5",
@@ -222,12 +222,138 @@ class MatchAnalyzerTests(unittest.TestCase):
                     },
                 )
             self.assertEqual(
-                copy_history[3]["market_data"]["over"]["total"], "4.5"
+                    copy_history[3]["market_data"]["over"]["total"], "4"
             )
             self.assertEqual(
                 copy_history[3]["market_data"]["ah"]["handicap"], "-1.5"
             )
             logger_mock.info.assert_not_called()
+
+    def test_score_change_unmasks_markets_after_timeout_without_recalculation(self):
+        with TemporaryDirectory() as temp_dir:
+            analyzer = MatchAnalyzer(
+                history_path=Path(temp_dir) / "matches_history.json",
+                history_copy_path=Path(temp_dir) / "matches_history_copy.json",
+            )
+            start = datetime(2026, 10, 22, 12, 0)
+
+            with (
+                patch("analyzer.datetime") as datetime_mock,
+                patch("analyzer.logger"),
+            ):
+                datetime_mock.now.side_effect = [
+                    start,
+                    start.replace(second=10),
+                    start.replace(minute=1, second=10),
+                ]
+                analyzer.initialize(
+                    [Match(match_id="match-1", score="1-0", total="3.5")]
+                )
+                analyzer.record_updates(
+                    [Match(match_id="match-1", score="2-0", total="3.75")]
+                )
+                analyzer.record_updates(
+                    [
+                        Match(
+                            match_id="match-1",
+                            score="2-0",
+                            total="3.75",
+                            over_odd="1.8",
+                        )
+                    ]
+                )
+
+            copy_history = analyzer.copy_histories["match-1"]
+            self.assertEqual(
+                copy_history[1]["market_data"]["over"]["total"], "Closed"
+            )
+            self.assertEqual(
+                copy_history[2]["market_data"]["over"]["total"], "3.75"
+            )
+            self.assertNotIn("match-1", analyzer._goal_market_baselines)
+            self.assertNotIn("match-1", analyzer._closed_markets_until)
+
+    def test_score_change_unmasks_markets_when_total_is_recalculated(self):
+        with TemporaryDirectory() as temp_dir:
+            analyzer = MatchAnalyzer(
+                history_path=Path(temp_dir) / "matches_history.json",
+                history_copy_path=Path(temp_dir) / "matches_history_copy.json",
+            )
+            start = datetime(2026, 10, 22, 12, 0)
+
+            with (
+                patch("analyzer.datetime") as datetime_mock,
+                patch("analyzer.logger"),
+            ):
+                datetime_mock.now.side_effect = [
+                    start,
+                    start.replace(second=10),
+                    start.replace(second=20),
+                ]
+                analyzer.initialize(
+                    [Match(match_id="match-1", score="1-0", total="3.5")]
+                )
+                analyzer.record_updates(
+                    [Match(match_id="match-1", score="2-0", total="3.75")]
+                )
+                analyzer.record_updates(
+                    [
+                        Match(
+                            match_id="match-1",
+                            score="2-0",
+                            total="4.25",
+                            ah_handicap="-1.5",
+                        )
+                    ]
+                )
+
+            copy_history = analyzer.copy_histories["match-1"]
+            self.assertEqual(
+                copy_history[1]["market_data"]["over"]["total"], "Closed"
+            )
+            self.assertEqual(
+                copy_history[2]["market_data"]["over"]["total"], "4.25"
+            )
+            self.assertEqual(
+                copy_history[2]["market_data"]["ah"]["handicap"], "-1.5"
+            )
+            self.assertNotIn("match-1", analyzer._goal_market_baselines)
+            self.assertNotIn("match-1", analyzer._closed_markets_until)
+
+    def test_score_change_unmasks_markets_after_timeout_when_score_reverts(self):
+        with TemporaryDirectory() as temp_dir:
+            analyzer = MatchAnalyzer(
+                history_path=Path(temp_dir) / "matches_history.json",
+                history_copy_path=Path(temp_dir) / "matches_history_copy.json",
+            )
+            start = datetime(2026, 10, 22, 12, 0)
+
+            with (
+                patch("analyzer.datetime") as datetime_mock,
+                patch("analyzer.logger"),
+            ):
+                datetime_mock.now.side_effect = [
+                    start,
+                    start.replace(second=10),
+                    start.replace(minute=1, second=10),
+                ]
+                analyzer.initialize(
+                    [Match(match_id="match-1", score="1-0", total="3.5")]
+                )
+                analyzer.record_updates(
+                    [Match(match_id="match-1", score="2-0", total="4")]
+                )
+                analyzer.record_updates(
+                    [Match(match_id="match-1", score="1-0", total="4")]
+                )
+
+            copy_history = analyzer.copy_histories["match-1"]
+            self.assertEqual(
+                copy_history[1]["market_data"]["over"]["total"], "Closed"
+            )
+            self.assertEqual(
+                copy_history[2]["market_data"]["over"]["total"], "4"
+            )
 
     def test_signal_database_has_text_columns_and_expected_fields(self):
         with TemporaryDirectory() as temp_dir:

@@ -3,9 +3,11 @@ import sqlite3
 from contextlib import closing
 from copy import deepcopy
 from datetime import date, datetime, timedelta
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 import config
+from line_utils import normalize_total
 from logger import logger
 from models import Match
 from notifier import TelegramNotifier
@@ -21,12 +23,14 @@ def _is_valid_saved_state(state: object) -> bool:
 	histories = state.get("histories")
 	copy_histories = state.get("copy_histories")
 	closed_markets_until = state.get("closed_markets_until")
+	goal_market_baselines = state.get("goal_market_baselines", {})
 	if (
 		not isinstance(active_match_ids, list)
 		or not all(isinstance(match_id, str) for match_id in active_match_ids)
 		or not isinstance(histories, dict)
 		or not isinstance(copy_histories, dict)
 		or not isinstance(closed_markets_until, dict)
+		or not isinstance(goal_market_baselines, dict)
 	):
 		return False
 	if (
@@ -54,6 +58,16 @@ def _is_valid_saved_state(state: object) -> bool:
 		try:
 			datetime.fromisoformat(deadline)
 		except ValueError:
+			return False
+
+	for match_id, baseline in goal_market_baselines.items():
+		if (
+			not isinstance(match_id, str)
+			or match_id not in closed_markets_until
+			or not isinstance(baseline, dict)
+			or not isinstance(baseline.get("score"), str)
+			or not isinstance(baseline.get("total"), str)
+		):
 			return False
 
 	return True
@@ -88,6 +102,7 @@ class MatchAnalyzer:
 		self.histories: dict[str, list[dict]] = {}
 		self.copy_histories: dict[str, list[dict]] = {}
 		self._closed_markets_until: dict[str, datetime] = {}
+		self._goal_market_baselines: dict[str, dict[str, str]] = {}
 		self.history_path = (
 			Path(history_path)
 			if history_path is not None
@@ -115,6 +130,7 @@ class MatchAnalyzer:
 		self.histories.clear()
 		self.copy_histories.clear()
 		self._closed_markets_until.clear()
+		self._goal_market_baselines.clear()
 
 		if saved_state is not None:
 			self._restore_state(saved_state, matches)
@@ -176,6 +192,15 @@ class MatchAnalyzer:
 				if match_id in current_match_ids
 			}
 		)
+		self._goal_market_baselines.update(
+			{
+				match_id: deepcopy(baseline)
+				for match_id, baseline in saved_state.get(
+					"goal_market_baselines", {}
+				).items()
+				if match_id in current_match_ids
+			}
+		)
 
 		for match in current_matches.values():
 			self._append_match(match)
@@ -203,6 +228,8 @@ class MatchAnalyzer:
 				for match_id, deadline in self._closed_markets_until.items()
 			},
 		}
+		if self._goal_market_baselines:
+			payload["goal_market_baselines"] = self._goal_market_baselines
 
 		try:
 			state_path.write_text(
@@ -234,6 +261,7 @@ class MatchAnalyzer:
 			if self.histories.pop(match_id, None) is not None:
 				self.copy_histories.pop(match_id, None)
 				self._closed_markets_until.pop(match_id, None)
+				self._goal_market_baselines.pop(match_id, None)
 				changed = True
 		if changed:
 			self._write_history()
@@ -253,12 +281,20 @@ class MatchAnalyzer:
 			return False
 
 		observed_at = datetime.now()
-		if history:
+		goal_market_baseline = self._goal_market_baselines.get(match.match_id)
+		if goal_market_baseline is None and history:
 			previous_score = history[-1]["match_data"].get("score", "")
 			if previous_score and match.score and previous_score != match.score:
 				self._closed_markets_until[match.match_id] = (
 					observed_at
 					+ timedelta(minutes=config.GOAL_MARKET_CLOSE_MINUTES)
+				)
+				goal_market_baseline = {
+					"score": match.score,
+					"total": market_data["over"]["total"],
+				}
+				self._goal_market_baselines[match.match_id] = (
+					goal_market_baseline
 				)
 
 		entry = {
@@ -270,7 +306,29 @@ class MatchAnalyzer:
 
 		copy_market_data = market_data
 		closed_until = self._closed_markets_until.get(match.match_id)
-		if closed_until is not None and observed_at < closed_until:
+		if goal_market_baseline is not None:
+			baseline_total = normalize_total(goal_market_baseline["total"])
+			current_total = normalize_total(market_data["over"]["total"])
+			total_recalculated = (
+				baseline_total is not None
+				and current_total is not None
+				and current_total >= baseline_total + Decimal("0.5")
+			)
+			wait_timed_out = (
+				closed_until is not None and observed_at >= closed_until
+			)
+			if total_recalculated or wait_timed_out:
+				self._goal_market_baselines.pop(match.match_id, None)
+				self._closed_markets_until.pop(match.match_id, None)
+				closed_until = None
+
+		if (
+			match.match_id in self._goal_market_baselines
+			or (
+				closed_until is not None
+				and observed_at < closed_until
+			)
+		):
 			copy_market_data = {
 				"over": {
 					**market_data["over"],
