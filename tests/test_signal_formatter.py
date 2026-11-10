@@ -46,21 +46,21 @@ class SignalFormatterTests(unittest.TestCase):
         self.assertIn("⚡ 45’", message)
         self.assertNotIn("⚡ 40’", message)
 
-    def test_rounds_quarter_over_total_up(self):
-        for total, expected in (("3.25", "3.5"), ("3.75", "4")):
+    def test_preserves_quarter_over_total(self):
+        for total in ("1.25", "1.75"):
             with self.subTest(total=total):
                 self.signal["anchor"]["market_data"]["over"]["total"] = total
 
                 message = format_signal("over", self.signal)
 
-                self.assertTrue(message.endswith(f"Тотал больше {expected}"))
+                self.assertTrue(message.endswith(f"Тотал больше {total}"))
 
-    def test_normalizes_asian_over_total_before_rounding(self):
+    def test_normalizes_split_over_total_without_rounding(self):
         self.signal["anchor"]["market_data"]["over"]["total"] = "3.0/3.5"
 
         message = format_signal("over", self.signal)
 
-        self.assertTrue(message.endswith("Тотал больше 3.5"))
+        self.assertTrue(message.endswith("Тотал больше 3.25"))
 
     def test_formats_ah_signal_with_home_or_away_side(self):
         self.signal["anchor"]["match_data"]["score"] = "0-0"
@@ -71,21 +71,21 @@ class SignalFormatterTests(unittest.TestCase):
         away_message = format_signal("ah", self.signal)
         self.assertTrue(away_message.endswith("Фора 2 -1.5"))
 
-    def test_rounds_quarter_handicap_away_from_zero(self):
+    def test_preserves_positive_quarter_handicap(self):
         self.signal["anchor"]["match_data"]["score"] = "0-0"
-        self.signal["anchor"]["market_data"]["ah"]["handicap"] = "1.5/2"
+        self.signal["anchor"]["market_data"]["ah"]["handicap"] = "1.75"
 
         message = format_signal("ah", self.signal)
 
-        self.assertTrue(message.endswith("Фора 1 -2"))
+        self.assertTrue(message.endswith("Фора 1 -1.75"))
 
-    def test_rounds_negative_quarter_handicap_away_from_zero(self):
+    def test_preserves_negative_quarter_handicap(self):
         self.signal["anchor"]["match_data"]["score"] = "0-0"
-        self.signal["anchor"]["market_data"]["ah"]["handicap"] = "-1.5/2"
+        self.signal["anchor"]["market_data"]["ah"]["handicap"] = "-1.25"
 
         message = format_signal("ah", self.signal)
 
-        self.assertTrue(message.endswith("Фора 1 -2"))
+        self.assertTrue(message.endswith("Фора 1 -1.25"))
 
     def test_preserves_existing_negative_handicap(self):
         self.signal["anchor"]["match_data"]["score"] = "0-0"

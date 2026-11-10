@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from decimal import Decimal, InvalidOperation, ROUND_CEILING
+from decimal import Decimal, InvalidOperation
 import html
 import re
 from urllib.parse import quote
@@ -54,26 +54,6 @@ def _format_display_handicap(value: Decimal) -> str:
 	return f"+{formatted}" if value > 0 else formatted
 
 
-# Округляет четвертные линии тотала вверх до половины.
-def _round_quarter_total(value: Decimal) -> Decimal:
-	fractional_part = abs(value) % 1
-	if fractional_part in (Decimal("0.25"), Decimal("0.75")):
-		return (value * 2).to_integral_value(rounding=ROUND_CEILING) / 2
-	return value
-
-
-# Округляет четвертные форы от нуля до половины.
-def _round_quarter_handicap(value: Decimal) -> Decimal:
-	fractional_part = abs(value) % 1
-	if fractional_part not in (Decimal("0.25"), Decimal("0.75")):
-		return value
-
-	rounded_magnitude = (
-		(abs(value) * 2).to_integral_value(rounding=ROUND_CEILING) / 2
-	)
-	return -rounded_magnitude if value.is_signed() else rounded_magnitude
-
-
 # Разбирает счёт и возвращает голы хозяев и гостей.
 def _parse_score(score: str) -> tuple[int, int] | None:
 	match = re.fullmatch(r"\s*(\d+)\s*[-:]\s*(\d+)\s*", score)
@@ -126,9 +106,7 @@ def _format_signal_parts(
 			raise ValueError("Over signal anchor is missing total")
 		total = _normalize_line(value, normalize_total)
 		try:
-			display_total = _format_decimal(
-				_round_quarter_total(Decimal(total))
-			)
+			display_total = _format_decimal(Decimal(total))
 		except (InvalidOperation, ValueError):
 			logger.warning(
 				"Could not format total line for Telegram: %s",
@@ -177,9 +155,7 @@ def _format_signal_parts(
 					if side == "Home"
 					else away_score - home_score
 				)
-				display_handicap = _round_quarter_handicap(
-					handicap - score_difference
-				)
+				display_handicap = handicap - score_difference
 				normalized_outcome = config.NORMALIZED_HANDICAP_OUTCOMES.get(
 					(side, display_handicap)
 				)
