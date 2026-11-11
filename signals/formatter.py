@@ -5,7 +5,7 @@ import re
 from urllib.parse import quote
 
 import config
-from line_utils import normalize_handicap, normalize_total
+from domain.line_utils import normalize_handicap, normalize_total
 from logger import logger
 
 

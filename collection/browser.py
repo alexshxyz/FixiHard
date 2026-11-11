@@ -1,6 +1,6 @@
 import config
 from logger import logger
-from timing import seconds_to_milliseconds, wait_for_seconds
+from collection.timing import seconds_to_milliseconds, wait_for_seconds
 
 
 # Запускает Chromium с настройками проекта.
@@ -63,7 +63,7 @@ def refresh_live_table(page):
         timeout=seconds_to_milliseconds(config.TABLE_TIMEOUT_SECONDS)
     )
     wait_for_seconds(page, config.POST_REFRESH_WAIT_SECONDS)
-    from scraper import wait_for_valid_match_odds
+    from collection.scraper import wait_for_valid_match_odds
 
     if not wait_for_valid_match_odds(page):
         return False
@@ -85,7 +85,7 @@ def refresh_page(page):
             timeout=seconds_to_milliseconds(config.PAGE_TABLE_TIMEOUT_SECONDS)
         )
 
-        from scraper import wait_for_valid_match_odds
+        from collection.scraper import wait_for_valid_match_odds
 
         if not wait_for_valid_match_odds(page):
             return False

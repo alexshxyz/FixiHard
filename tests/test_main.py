@@ -4,7 +4,7 @@ from unittest.mock import Mock, call, patch
 
 import main
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
-from timing import seconds_to_milliseconds
+from collection.timing import seconds_to_milliseconds
 
 
 class MainTests(unittest.TestCase):

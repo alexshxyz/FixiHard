@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from signal_formatter import format_signal, format_signal_details
+from signals.formatter import format_signal, format_signal_details
 
 
 class SignalFormatterTests(unittest.TestCase):
@@ -144,7 +144,7 @@ class SignalFormatterTests(unittest.TestCase):
     def test_preserves_unparseable_total_and_logs_warning(self):
         self.signal["anchor"]["market_data"]["over"]["total"] = "unknown"
 
-        with patch("signal_formatter.logger") as logger_mock:
+        with patch("signals.formatter.logger") as logger_mock:
             message, prediction = format_signal_details("over", self.signal)
 
         self.assertTrue(message.endswith("Тотал больше unknown"))
@@ -157,7 +157,7 @@ class SignalFormatterTests(unittest.TestCase):
                 self.signal["anchor"]["market_data"]["ah"]["handicap"] = (
                     handicap
                 )
-                with patch("signal_formatter.logger") as logger_mock:
+                with patch("signals.formatter.logger") as logger_mock:
                     message = format_signal("ah", self.signal)
 
                 self.assertTrue(message.endswith(f"Фора 1 {handicap}"))

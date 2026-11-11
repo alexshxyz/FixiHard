@@ -6,19 +6,19 @@ import threading
 import time
 from functools import partial
 
-from analyzer import MatchAnalyzer, load_state_from_json
+from analysis.analyzer import MatchAnalyzer, load_state_from_json
 import config
-from browser import refresh_live_table, refresh_page, start_browser
-from logger import logger
-from notifier import TelegramNotifier
-from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
-from scraper import (
+from collection.browser import refresh_live_table, refresh_page, start_browser
+from collection.scraper import (
     _log_matches_updated,
     reattach_live_watch,
     scrape_matches,
     start_live_watch,
 )
-from timing import wait_for_seconds
+from collection.timing import wait_for_seconds
+from logger import logger
+from notifications.telegram import TelegramNotifier
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 class ScriptRestartRequested(Exception):
     # Обозначает необходимость перезапустить главный цикл бота.

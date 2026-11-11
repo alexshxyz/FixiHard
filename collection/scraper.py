@@ -1,11 +1,10 @@
 import time
-
 import config
-import scripts
+from collection import scripts
 from logger import logger
-from live_watch import _LiveWatch
-from models import Match
-from timing import seconds_to_milliseconds, wait_for_seconds
+from collection.live_watch import _LiveWatch
+from collection.timing import seconds_to_milliseconds, wait_for_seconds
+from domain.models import Match
 
 
 # Ждём появления строк матчей.

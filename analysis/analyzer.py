@@ -7,12 +7,12 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 import config
-from line_utils import normalize_total
+from domain.line_utils import normalize_total
 from logger import logger
-from models import Match
-from notifier import TelegramNotifier
-from signal_formatter import format_signal_details
-from strategy import find_ah_signal, find_over_signal
+from domain.models import Match
+from notifications.telegram import TelegramNotifier
+from signals.formatter import format_signal_details
+from analysis.strategy import find_ah_signal, find_over_signal
 
 
 def _is_valid_saved_state(state: object) -> bool:
@@ -106,7 +106,7 @@ class MatchAnalyzer:
 		self.history_path = (
 			Path(history_path)
 			if history_path is not None
-			else Path(__file__).with_name("matches_history.json")
+			else config.APP_DIR / "data" / "matches_history.json"
 		)
 		self.history_copy_path = (
 			Path(history_copy_path)
@@ -116,9 +116,10 @@ class MatchAnalyzer:
 		self.database_path = (
 			Path(database_path)
 			if database_path is not None
-			else Path(__file__).with_name("matches.sqlite3")
+			else config.APP_DIR / "data" / "matches.sqlite3"
 		)
 		self.notifier = notifier
+		self.database_path.parent.mkdir(parents=True, exist_ok=True)
 		self._initialize_signals_database()
 
 	# Создаёт историю и проверяет начальные данные матчей.
@@ -232,6 +233,7 @@ class MatchAnalyzer:
 			payload["goal_market_baselines"] = self._goal_market_baselines
 
 		try:
+			state_path.parent.mkdir(parents=True, exist_ok=True)
 			state_path.write_text(
 				json.dumps(payload, ensure_ascii=False, indent=2),
 				encoding="utf-8",
@@ -364,6 +366,7 @@ class MatchAnalyzer:
 	# Сериализует историю матчей в JSON-файл.
 	@staticmethod
 	def _write_history_file(path: Path, histories: dict[str, list[dict]]) -> None:
+		path.parent.mkdir(parents=True, exist_ok=True)
 		document = {
 			"matches": [
 				{"match_id": match_id, "history": history}

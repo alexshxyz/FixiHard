@@ -1,7 +1,7 @@
 import unittest
 from decimal import Decimal
 
-from line_utils import normalize_handicap, normalize_total, parse_line_components
+from domain.line_utils import normalize_handicap, normalize_total, parse_line_components
 
 
 class LineUtilsTests(unittest.TestCase):

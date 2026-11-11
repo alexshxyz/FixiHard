@@ -1,6 +1,6 @@
 import unittest
 
-from models import Match, MatchDelta
+from domain.models import Match, MatchDelta
 
 
 class MatchTests(unittest.TestCase):

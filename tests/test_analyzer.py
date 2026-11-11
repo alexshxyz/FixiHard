@@ -7,11 +7,67 @@ from tempfile import TemporaryDirectory
 from pathlib import Path
 from unittest.mock import Mock, call, patch
 
-from analyzer import MatchAnalyzer, load_state_from_json
-from models import Match
+from analysis.analyzer import MatchAnalyzer, load_state_from_json
+from domain.models import Match
 
 
 class MatchAnalyzerTests(unittest.TestCase):
+    def setUp(self):
+        self.storage_dir = TemporaryDirectory()
+        self.addCleanup(self.storage_dir.cleanup)
+        data_dir = Path(self.storage_dir.name) / "data"
+        self.app_dir_patcher = patch(
+            "analysis.analyzer.config.APP_DIR",
+            Path(self.storage_dir.name),
+        )
+        self.state_path_patcher = patch(
+            "analysis.analyzer.config.STATE_SAVE_FILE",
+            data_dir / "match_state.json",
+        )
+        self.app_dir_patcher.start()
+        self.state_path_patcher.start()
+        self.addCleanup(self.state_path_patcher.stop)
+        self.addCleanup(self.app_dir_patcher.stop)
+
+    def test_default_storage_files_are_created_in_data_directory(self):
+        with TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            data_dir = app_dir / "data"
+
+            with (
+                patch("analysis.analyzer.config.APP_DIR", app_dir),
+                patch(
+                    "analysis.analyzer.config.STATE_SAVE_FILE",
+                    data_dir / "match_state.json",
+                ),
+            ):
+                analyzer = MatchAnalyzer()
+                analyzer.initialize([])
+
+                self.assertEqual(
+                    analyzer.history_path,
+                    data_dir / "matches_history.json",
+                )
+                self.assertEqual(
+                    analyzer.history_copy_path,
+                    data_dir / "matches_history_copy.json",
+                )
+                self.assertEqual(
+                    analyzer.database_path,
+                    data_dir / "matches.sqlite3",
+                )
+                self.assertTrue(analyzer.save_state())
+
+            self.assertEqual(
+                {path.name for path in data_dir.iterdir()},
+                {
+                    "match_state.json",
+                    "matches_history.json",
+                    "matches_history_copy.json",
+                    "matches.sqlite3",
+                },
+            )
+
     def test_signal_uses_latest_observed_match_time(self):
         with TemporaryDirectory() as temp_dir:
             analyzer = MatchAnalyzer(
@@ -84,8 +140,8 @@ class MatchAnalyzerTests(unittest.TestCase):
             }
 
             with (
-                patch("analyzer.datetime") as datetime_mock,
-                patch("analyzer.logger") as logger_mock,
+                patch("analysis.analyzer.datetime") as datetime_mock,
+                patch("analysis.analyzer.logger") as logger_mock,
             ):
                 datetime_mock.now.side_effect = [
                     start,
@@ -134,8 +190,8 @@ class MatchAnalyzerTests(unittest.TestCase):
             start = datetime(2026, 10, 22, 12, 0)
 
             with (
-                patch("analyzer.datetime") as datetime_mock,
-                patch("analyzer.logger") as logger_mock,
+                patch("analysis.analyzer.datetime") as datetime_mock,
+                patch("analysis.analyzer.logger") as logger_mock,
             ):
                 datetime_mock.now.side_effect = [
                     start,
@@ -238,8 +294,8 @@ class MatchAnalyzerTests(unittest.TestCase):
             start = datetime(2026, 10, 22, 12, 0)
 
             with (
-                patch("analyzer.datetime") as datetime_mock,
-                patch("analyzer.logger"),
+                patch("analysis.analyzer.datetime") as datetime_mock,
+                patch("analysis.analyzer.logger"),
             ):
                 datetime_mock.now.side_effect = [
                     start,
@@ -282,8 +338,8 @@ class MatchAnalyzerTests(unittest.TestCase):
             start = datetime(2026, 10, 22, 12, 0)
 
             with (
-                patch("analyzer.datetime") as datetime_mock,
-                patch("analyzer.logger"),
+                patch("analysis.analyzer.datetime") as datetime_mock,
+                patch("analysis.analyzer.logger"),
             ):
                 datetime_mock.now.side_effect = [
                     start,
@@ -329,8 +385,8 @@ class MatchAnalyzerTests(unittest.TestCase):
             start = datetime(2026, 10, 22, 12, 0)
 
             with (
-                patch("analyzer.datetime") as datetime_mock,
-                patch("analyzer.logger"),
+                patch("analysis.analyzer.datetime") as datetime_mock,
+                patch("analysis.analyzer.logger"),
             ):
                 datetime_mock.now.side_effect = [
                     start,
@@ -409,7 +465,7 @@ class MatchAnalyzerTests(unittest.TestCase):
                 "Test League",
                 "Home",
                 "Away",
-                "Тотал больше 3.5",
+                "Тотал больше 3.25",
             ))
             self.assertEqual(row[5:], (
                 "",
@@ -440,7 +496,7 @@ class MatchAnalyzerTests(unittest.TestCase):
             analyzer = MatchAnalyzer(history_path, database_path)
             now = datetime(2026, 10, 21, 20, 30, 9)
 
-            with patch("analyzer.datetime") as datetime_mock:
+            with patch("analysis.analyzer.datetime") as datetime_mock:
                 datetime_mock.now.return_value = now
                 analyzer.initialize([Match(match_id="match-1")])
 
@@ -469,7 +525,7 @@ class MatchAnalyzerTests(unittest.TestCase):
             )
 
             with (
-                patch("analyzer.config.DEBUG_MODE", 0),
+                patch("analysis.analyzer.config.DEBUG_MODE", 0),
                 patch.object(analyzer, "_analyze_match") as analyze_match,
             ):
                 analyzer.initialize([match])
@@ -505,8 +561,8 @@ class MatchAnalyzerTests(unittest.TestCase):
             }
 
             with (
-                patch("analyzer.datetime") as datetime_mock,
-                patch("analyzer.logger") as logger_mock,
+                patch("analysis.analyzer.datetime") as datetime_mock,
+                patch("analysis.analyzer.logger") as logger_mock,
             ):
                 datetime_mock.now.side_effect = [
                     start,
@@ -554,8 +610,8 @@ class MatchAnalyzerTests(unittest.TestCase):
 
             restarted = MatchAnalyzer(history_path, database_path)
             with (
-                patch("analyzer.datetime") as datetime_mock,
-                patch("analyzer.logger") as logger_mock,
+                patch("analysis.analyzer.datetime") as datetime_mock,
+                patch("analysis.analyzer.logger") as logger_mock,
             ):
                 datetime_mock.now.side_effect = [
                     start.replace(minute=2),
@@ -654,12 +710,12 @@ class MatchAnalyzerTests(unittest.TestCase):
             }
 
             with (
-                patch("analyzer.find_over_signal", return_value=None),
-                patch("analyzer.find_ah_signal", return_value=signal),
+                patch("analysis.analyzer.find_over_signal", return_value=None),
+                patch("analysis.analyzer.find_ah_signal", return_value=signal),
                 patch.object(
                     analyzer, "_save_signal", return_value="formatted"
                 ) as save_signal,
-                patch("analyzer.logger") as logger_mock,
+                patch("analysis.analyzer.logger") as logger_mock,
             ):
                 analyzer.copy_histories["match-1"] = [current, anchor]
                 analyzer._analyze_match("match-1")
@@ -691,10 +747,10 @@ class MatchAnalyzerTests(unittest.TestCase):
             }
 
             with (
-                patch("analyzer.find_over_signal", return_value=None),
-                patch("analyzer.find_ah_signal", return_value=signal),
+                patch("analysis.analyzer.find_over_signal", return_value=None),
+                patch("analysis.analyzer.find_ah_signal", return_value=signal),
                 patch.object(analyzer, "_save_signal", return_value=None),
-                patch("analyzer.logger") as logger_mock,
+                patch("analysis.analyzer.logger") as logger_mock,
             ):
                 analyzer.copy_histories["match-1"] = [current, anchor]
                 analyzer._analyze_match("match-1")
@@ -829,7 +885,7 @@ class MatchAnalyzerTests(unittest.TestCase):
         with TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "state.json"
             path.write_text("{invalid", encoding="utf-8")
-            with patch("analyzer.logger") as logger_mock:
+            with patch("analysis.analyzer.logger") as logger_mock:
                 self.assertIsNone(load_state_from_json(path))
 
             self.assertTrue(path.exists())
@@ -849,7 +905,7 @@ class MatchAnalyzerTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            with patch("analyzer.logger") as logger_mock:
+            with patch("analysis.analyzer.logger") as logger_mock:
                 self.assertIsNone(load_state_from_json(path))
 
             self.assertTrue(path.exists())
@@ -871,7 +927,7 @@ class MatchAnalyzerTests(unittest.TestCase):
             )
             with (
                 patch.object(Path, "unlink", side_effect=OSError("denied")),
-                patch("analyzer.logger") as logger_mock,
+                patch("analysis.analyzer.logger") as logger_mock,
             ):
                 self.assertIsNone(load_state_from_json(path))
 
@@ -889,7 +945,7 @@ class MatchAnalyzerTests(unittest.TestCase):
                     "write_text",
                     side_effect=OSError("permission denied"),
                 ),
-                patch("analyzer.logger") as logger_mock,
+                patch("analysis.analyzer.logger") as logger_mock,
             ):
                 self.assertFalse(
                     analyzer.save_state(Path(temp_dir) / "state.json")

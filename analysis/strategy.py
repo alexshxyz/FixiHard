@@ -3,8 +3,8 @@ from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 
 import config
-from line_utils import normalize_handicap as _normalize_handicap
-from line_utils import normalize_total as _normalize_total
+from domain.line_utils import normalize_handicap as _normalize_handicap
+from domain.line_utils import normalize_total as _normalize_total
 
 
 # Читает время наблюдения из записи истории.

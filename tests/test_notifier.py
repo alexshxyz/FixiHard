@@ -4,8 +4,8 @@ from unittest.mock import Mock, call, patch
 import requests
 
 import config
-from notifier import TelegramNotifier
-from signal_formatter import format_signal
+from notifications.telegram import TelegramNotifier
+from signals.formatter import format_signal
 
 
 class TelegramNotifierTests(unittest.TestCase):
@@ -40,7 +40,7 @@ class TelegramNotifierTests(unittest.TestCase):
             format_signal("over", self.signal),
         )
 
-    @patch("notifier.requests.post")
+    @patch("notifications.telegram.requests.post")
     def test_sends_preformatted_message_without_formatting_it_again(self, post_mock):
         post_mock.return_value = Mock(json=Mock(return_value={"ok": True}))
 
@@ -58,8 +58,8 @@ class TelegramNotifierTests(unittest.TestCase):
             "Prepared prediction",
         )
 
-    @patch("notifier.time.sleep")
-    @patch("notifier.requests.post")
+    @patch("notifications.telegram.time.sleep")
+    @patch("notifications.telegram.requests.post")
     def test_retries_twice_then_succeeds_using_socks_proxy(
         self, post_mock, sleep_mock
     ):
@@ -96,9 +96,9 @@ class TelegramNotifierTests(unittest.TestCase):
             config.TELEGRAM_REQUEST_TIMEOUT_SECONDS,
         )
 
-    @patch("notifier.time.sleep")
-    @patch("notifier.requests.post")
-    @patch("notifier.logger")
+    @patch("notifications.telegram.time.sleep")
+    @patch("notifications.telegram.requests.post")
+    @patch("notifications.telegram.logger")
     def test_logs_error_after_three_failed_attempts(
         self, logger_mock, post_mock, sleep_mock
     ):
@@ -111,8 +111,8 @@ class TelegramNotifierTests(unittest.TestCase):
         self.assertEqual(sleep_mock.call_args_list, [call(3), call(3)])
         logger_mock.error.assert_called_once()
 
-    @patch("notifier.time.sleep")
-    @patch("notifier.requests.post")
+    @patch("notifications.telegram.time.sleep")
+    @patch("notifications.telegram.requests.post")
     def test_retries_when_telegram_returns_api_error(self, post_mock, sleep_mock):
         post_mock.side_effect = [
             Mock(
@@ -138,7 +138,7 @@ class TelegramNotifierTests(unittest.TestCase):
         self.assertEqual(post_mock.call_count, 2)
         sleep_mock.assert_called_once_with(3)
 
-    @patch("notifier.load_dotenv")
+    @patch("notifications.telegram.load_dotenv")
     @patch.dict(
         "os.environ",
         {
@@ -181,7 +181,7 @@ class TelegramNotifierTests(unittest.TestCase):
             "network unavailable",
         )
 
-    @patch("notifier.load_dotenv")
+    @patch("notifications.telegram.load_dotenv")
     def test_loads_without_proxy_and_accepts_boundary_ports(self, _load_dotenv):
         for port in ("1", "65535"):
             with self.subTest(port=port):
@@ -206,7 +206,7 @@ class TelegramNotifierTests(unittest.TestCase):
             notifier = TelegramNotifier.from_environment()
         self.assertIsNone(notifier.proxy_url)
 
-    @patch("notifier.load_dotenv")
+    @patch("notifications.telegram.load_dotenv")
     def test_rejects_incomplete_proxy_settings_and_invalid_ports(
         self, _load_dotenv
     ):
@@ -254,9 +254,9 @@ class TelegramNotifierTests(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, expected):
                         TelegramNotifier.from_environment()
 
-    @patch("notifier.time.sleep")
-    @patch("notifier.requests.post")
-    @patch("notifier.logger")
+    @patch("notifications.telegram.time.sleep")
+    @patch("notifications.telegram.requests.post")
+    @patch("notifications.telegram.logger")
     def test_rejects_non_object_telegram_response_after_retries(
         self, logger_mock, post_mock, sleep_mock
     ):
@@ -279,9 +279,9 @@ class TelegramNotifierTests(unittest.TestCase):
         )
         logger_mock.error.assert_called_once()
 
-    @patch("notifier.time.sleep")
-    @patch("notifier.requests.post")
-    @patch("notifier.logger")
+    @patch("notifications.telegram.time.sleep")
+    @patch("notifications.telegram.requests.post")
+    @patch("notifications.telegram.logger")
     def test_redacts_bot_and_proxy_secrets_from_final_error(
         self, logger_mock, post_mock, _sleep_mock
     ):

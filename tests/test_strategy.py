@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from unittest.mock import patch
 
-from strategy import (
+from analysis.strategy import (
     _entry_time,
     _find_cumulative_movement,
     _has_excluded_anchor_match_time,

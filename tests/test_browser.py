@@ -1,13 +1,13 @@
 import unittest
 from unittest.mock import Mock, call, patch
 
-import browser
-from timing import seconds_to_milliseconds
+from collection import browser
+from collection.timing import seconds_to_milliseconds
 
 
 class BrowserFunctionTests(unittest.TestCase):
     def setUp(self):
-        self.logger_patcher = patch("browser.logger")
+        self.logger_patcher = patch("collection.browser.logger")
         self.logger = self.logger_patcher.start()
         self.addCleanup(self.logger_patcher.stop)
 
@@ -17,9 +17,9 @@ class BrowserFunctionTests(unittest.TestCase):
         playwright.chromium.launch.return_value = expected_browser
 
         with (
-            patch("browser.config.HEADLESS", False),
+            patch("collection.browser.config.HEADLESS", False),
             patch(
-                "browser.config.BROWSER_PROXY_SERVER",
+                "collection.browser.config.BROWSER_PROXY_SERVER",
                 "socks5://proxy.test:1080",
             ),
         ):
@@ -53,7 +53,7 @@ class BrowserFunctionTests(unittest.TestCase):
 
         with (
             patch(
-                "browser.config.BROWSER_PROXY_SERVER",
+                "collection.browser.config.BROWSER_PROXY_SERVER",
                 "socks5://proxy.test:1080",
             ),
             self.assertRaisesRegex(RuntimeError, "launch failed"),
@@ -66,7 +66,7 @@ class BrowserFunctionTests(unittest.TestCase):
         playwright = Mock()
 
         with (
-            patch("browser.config.BROWSER_PROXY_SERVER", None),
+            patch("collection.browser.config.BROWSER_PROXY_SERVER", None),
             self.assertRaisesRegex(
                 RuntimeError, "BROWSER_PROXY_SERVER is not configured"
             ),
@@ -84,7 +84,7 @@ class BrowserFunctionTests(unittest.TestCase):
         context.new_page.return_value = page
         cookies = [{"name": "session", "value": "test"}]
 
-        with patch("browser.config.SITE_COOKIES", cookies):
+        with patch("collection.browser.config.SITE_COOKIES", cookies):
             result = browser.create_page(browser_instance)
 
         self.assertEqual(result, (context, page))
@@ -110,7 +110,7 @@ class BrowserFunctionTests(unittest.TestCase):
         browser_instance.new_context.return_value = context
         context.new_page.return_value = page
 
-        with patch("browser.config.SITE_COOKIES", []):
+        with patch("collection.browser.config.SITE_COOKIES", []):
             result = browser.create_page(browser_instance)
 
         self.assertEqual(result, (context, page))
@@ -131,7 +131,7 @@ class BrowserFunctionTests(unittest.TestCase):
     def test_open_site_navigates_and_logs_success(self):
         page = Mock()
 
-        with patch("browser.config.SITE_URL", "https://example.test/"):
+        with patch("collection.browser.config.SITE_URL", "https://example.test/"):
             browser.open_site(page)
 
         page.goto.assert_called_once_with(
@@ -202,7 +202,7 @@ class BrowserFunctionTests(unittest.TestCase):
     def test_refresh_live_table_checks_odds_after_click(self):
         page = Mock()
 
-        with patch("scraper.wait_for_valid_match_odds", return_value=True) as wait_odds:
+        with patch("collection.scraper.wait_for_valid_match_odds", return_value=True) as wait_odds:
             result = browser.refresh_live_table(page)
 
         self.assertTrue(result)
@@ -232,7 +232,7 @@ class BrowserFunctionTests(unittest.TestCase):
     def test_refresh_live_table_returns_false_when_odds_are_missing(self):
         page = Mock()
 
-        with patch("scraper.wait_for_valid_match_odds", return_value=False):
+        with patch("collection.scraper.wait_for_valid_match_odds", return_value=False):
             result = browser.refresh_live_table(page)
 
         self.assertFalse(result)
@@ -251,7 +251,7 @@ class BrowserFunctionTests(unittest.TestCase):
     def test_refresh_page_reloads_and_waits_for_valid_data(self):
         page = Mock()
 
-        with patch("scraper.wait_for_valid_match_odds", return_value=True) as wait_odds:
+        with patch("collection.scraper.wait_for_valid_match_odds", return_value=True) as wait_odds:
             result = browser.refresh_page(page)
 
         self.assertTrue(result)
@@ -276,7 +276,7 @@ class BrowserFunctionTests(unittest.TestCase):
     def test_refresh_page_returns_false_when_odds_are_missing(self):
         page = Mock()
 
-        with patch("scraper.wait_for_valid_match_odds", return_value=False):
+        with patch("collection.scraper.wait_for_valid_match_odds", return_value=False):
             result = browser.refresh_page(page)
 
         self.assertFalse(result)
@@ -312,14 +312,14 @@ class StartBrowserTests(unittest.TestCase):
         self.sync_playwright.return_value.start.return_value = self.playwright
         self.patchers = [
             patch("playwright.sync_api.sync_playwright", self.sync_playwright),
-            patch("browser.launch_browser", return_value=self.browser_instance),
+            patch("collection.browser.launch_browser", return_value=self.browser_instance),
             patch(
-                "browser.create_page",
+                "collection.browser.create_page",
                 return_value=(self.context, self.page),
             ),
-            patch("browser.open_site"),
-            patch("browser.select_live_tab"),
-            patch("browser.logger"),
+            patch("collection.browser.open_site"),
+            patch("collection.browser.select_live_tab"),
+            patch("collection.browser.logger"),
         ]
         self.mocks = [patcher.start() for patcher in self.patchers]
         self.addCleanup(self._stop_patchers)

@@ -1,5 +1,4 @@
 import os
-from pathlib import Path
 import time
 from urllib.parse import quote
 
@@ -8,7 +7,7 @@ from dotenv import load_dotenv
 
 import config
 from logger import logger
-from signal_formatter import format_signal as _format_signal
+from signals.formatter import format_signal as _format_signal
 
 
 class TelegramNotifier:
@@ -31,7 +30,7 @@ class TelegramNotifier:
 	# Создаёт notifier из переменных окружения.
 	@classmethod
 	def from_environment(cls) -> "TelegramNotifier":
-		load_dotenv(Path(__file__).with_name(".env"))
+		load_dotenv(config.APP_DIR / ".env")
 		bot_token = os.getenv("BOT_TOKEN", "")
 		channel_id = os.getenv("CHANNEL_ID", "")
 		proxy_host = os.getenv("TELEGRAM_PROXY_HOST", "").strip()

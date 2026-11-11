@@ -1,15 +1,15 @@
 import unittest
 from unittest.mock import Mock, call, patch
 
-import scraper
-import scripts
-from models import Match
-from timing import seconds_to_milliseconds
+from collection import scraper
+from collection import scripts
+from domain.models import Match
+from collection.timing import seconds_to_milliseconds
 
 
 class ScraperWaitTests(unittest.TestCase):
     def setUp(self):
-        self.logger_patcher = patch("scraper.logger")
+        self.logger_patcher = patch("collection.scraper.logger")
         self.logger = self.logger_patcher.start()
         self.addCleanup(self.logger_patcher.stop)
 
@@ -71,7 +71,7 @@ class ScraperWaitTests(unittest.TestCase):
         page = Mock()
         page.evaluate.side_effect = [False, True]
 
-        with patch("scraper.time.monotonic", side_effect=[0, 1]):
+        with patch("collection.scraper.time.monotonic", side_effect=[0, 1]):
             result = scraper.wait_for_valid_match_odds(page, timeout_seconds=10)
 
         self.assertTrue(result)
@@ -89,7 +89,7 @@ class ScraperWaitTests(unittest.TestCase):
         page = Mock()
         page.evaluate.return_value = False
 
-        with patch("scraper.time.monotonic", side_effect=[0, 10]):
+        with patch("collection.scraper.time.monotonic", side_effect=[0, 10]):
             result = scraper.wait_for_valid_match_odds(page, timeout_seconds=10)
 
         self.assertFalse(result)
@@ -99,7 +99,7 @@ class ScraperWaitTests(unittest.TestCase):
 class ScraperCollectionTests(unittest.TestCase):
     def setUp(self):
         self.page = Mock()
-        self.logger_patcher = patch("scraper.logger")
+        self.logger_patcher = patch("collection.scraper.logger")
         self.logger = self.logger_patcher.start()
         self.addCleanup(self.logger_patcher.stop)
 
@@ -187,9 +187,9 @@ class ScraperCollectionTests(unittest.TestCase):
             away_team="Team",
         )
         with (
-            patch("scraper._league_names", return_value={"l-1": "League One"}),
+            patch("collection.scraper._league_names", return_value={"l-1": "League One"}),
             patch(
-                "scraper._load_all_matches_data",
+                "collection.scraper._load_all_matches_data",
                 return_value=[first, duplicate, other],
             ),
         ):
@@ -205,9 +205,9 @@ class ScraperCollectionTests(unittest.TestCase):
         missing_home = Match(match_id="missing-home", away_team="Away")
         missing_away = Match(match_id="missing-away", home_team="Home")
         with (
-            patch("scraper._league_names", return_value={}),
+            patch("collection.scraper._league_names", return_value={}),
             patch(
-                "scraper._load_all_matches_data",
+                "collection.scraper._load_all_matches_data",
                 return_value=[valid, missing_home, missing_away],
             ),
         ):
@@ -226,9 +226,9 @@ class ScraperCollectionTests(unittest.TestCase):
         second = Match(home_team="Home 2", away_team="Away 2")
         missing_teams = Match()
         with (
-            patch("scraper._league_names", return_value={}),
+            patch("collection.scraper._league_names", return_value={}),
             patch(
-                "scraper._load_all_matches_data",
+                "collection.scraper._load_all_matches_data",
                 return_value=[first, second, missing_teams],
             ),
         ):
@@ -242,7 +242,7 @@ class ScraperCollectionTests(unittest.TestCase):
 
 class ScraperPersistenceAndLoggingTests(unittest.TestCase):
     def setUp(self):
-        self.logger_patcher = patch("scraper.logger")
+        self.logger_patcher = patch("collection.scraper.logger")
         self.logger = self.logger_patcher.start()
         self.addCleanup(self.logger_patcher.stop)
 
@@ -253,9 +253,9 @@ class ScraperPersistenceAndLoggingTests(unittest.TestCase):
             Match(match_id="m-2"),
         ]
         with (
-            patch("scraper.wait_for_match_data") as wait_data,
-            patch("scraper.wait_for_match_odds") as wait_odds,
-            patch("scraper._collect_current_matches", return_value=matches),
+            patch("collection.scraper.wait_for_match_data") as wait_data,
+            patch("collection.scraper.wait_for_match_odds") as wait_odds,
+            patch("collection.scraper._collect_current_matches", return_value=matches),
             patch("pathlib.Path.write_text") as write_text,
         ):
             result = scraper.scrape_matches(page)
@@ -271,9 +271,9 @@ class ScraperPersistenceAndLoggingTests(unittest.TestCase):
     def test_scrape_matches_can_skip_odds_success_log(self):
         page = Mock()
         with (
-            patch("scraper.wait_for_match_data") as wait_data,
-            patch("scraper.wait_for_match_odds") as wait_odds,
-            patch("scraper._collect_current_matches", return_value=[]),
+            patch("collection.scraper.wait_for_match_data") as wait_data,
+            patch("collection.scraper.wait_for_match_odds") as wait_odds,
+            patch("collection.scraper._collect_current_matches", return_value=[]),
             patch("pathlib.Path.write_text") as write_text,
         ):
             result = scraper.scrape_matches(page, log_odds_found=False)
@@ -287,9 +287,9 @@ class ScraperPersistenceAndLoggingTests(unittest.TestCase):
     def test_scrape_matches_stops_after_wait_failure_without_writing(self):
         page = Mock()
         with (
-            patch("scraper.wait_for_match_data", side_effect=TimeoutError("no rows")),
-            patch("scraper.wait_for_match_odds") as wait_odds,
-            patch("scraper._collect_current_matches") as collect,
+            patch("collection.scraper.wait_for_match_data", side_effect=TimeoutError("no rows")),
+            patch("collection.scraper.wait_for_match_odds") as wait_odds,
+            patch("collection.scraper._collect_current_matches") as collect,
             patch("pathlib.Path.write_text") as write_text,
         ):
             with self.assertRaisesRegex(TimeoutError, "no rows"):
@@ -321,12 +321,12 @@ class StartLiveWatchTests(unittest.TestCase):
         self.initial_matches = [Match(match_id="m-1")]
         self.live_watch = Mock()
         self.collect_patcher = patch(
-            "scraper._collect_current_matches",
+            "collection.scraper._collect_current_matches",
             return_value=self.initial_matches,
         )
         self.collect_matches = self.collect_patcher.start()
         self.addCleanup(self.collect_patcher.stop)
-        self.watch_patcher = patch("scraper._LiveWatch", return_value=self.live_watch)
+        self.watch_patcher = patch("collection.scraper._LiveWatch", return_value=self.live_watch)
         self.watch_class = self.watch_patcher.start()
         self.addCleanup(self.watch_patcher.stop)
 

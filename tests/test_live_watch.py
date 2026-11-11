@@ -1,8 +1,8 @@
 import unittest
 from unittest.mock import Mock, call, patch
 
-from live_watch import _LiveWatch
-from models import Match
+from collection.live_watch import _LiveWatch
+from domain.models import Match
 
 
 _DEFAULT_DELETE_CALLBACK = object()
@@ -14,7 +14,7 @@ class LiveWatchTests(unittest.TestCase):
         self.on_update = Mock()
         self.on_deleted = Mock()
         self.collect_matches = Mock()
-        self.logger_patcher = patch("live_watch.logger")
+        self.logger_patcher = patch("collection.live_watch.logger")
         self.logger = self.logger_patcher.start()
         self.addCleanup(self.logger_patcher.stop)
         self.initial = Match(match_id="match-1", score="0:0")
